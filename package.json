@@ -19,6 +19,7 @@
     "check:browser": "node tools/browser-check.mjs",
     "bench": "node tests/search-bench.mjs",
     "experiment": "node tools/experiment.mjs",
+    "selfplay": "node tools/selfplay.mjs",
     "key:set": "node tools/win-key.mjs set",
     "key:status": "node tools/win-key.mjs status",
     "key:clear": "node tools/win-key.mjs clear"

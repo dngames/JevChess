@@ -221,6 +221,30 @@ node tools/experiment.mjs --only prompt-shape
 It writes `experiments/results-<timestamp>.json`. With no key it runs against the mock so
 you can see the mechanics — those numbers say nothing about Jev.
 
+### Does Jev's judgement add anything?
+
+The other half of the question, and a different instrument. `tools/selfplay.mjs` plays whole
+games between two strategies unattended and measures whether letting Jev judge a move beats
+letting the search decide:
+
+```
+npm run selfplay                                    # balanced vs code-only, 2 games
+npm run selfplay -- --games=6 --a=balanced --b=pure-jev --budget=300
+npm run selfplay -- --mock                          # mechanics only
+```
+
+The load-bearing metric is the **impact**: every time a seat's composite pick differed from
+the search's own top move, both moves are re-evaluated by a *deeper, independent* reference
+search (depth 4, 1.2 s by default). Better scores count as a win for Jev's judgement, worse
+as a loss, within ±20cp as indistinguishable. Code computes that verdict — no model grades
+itself. The run also reports the match score by colour, game lengths, termination reasons, and
+a fallback count that must be zero (a move needing rescue means something is broken).
+
+Costs, measured: about 30 s per game at a 150 ms seat budget, and ~$0.01 of Jev tokens for a
+two-game run at the defaults. With the mock, Jev's answers are pseudo-random, so a *negative*
+impact is the correct and expected result — it is how you know the metric discriminates rather
+than flatters. Real numbers need a key.
+
 **Not yet run against the real model**, because no key was available while building it.
 Expect the first real run to suggest editing questions and weights; that is the intended
 workflow, not a failure. Jev's competence at chess is the main open question in this
@@ -287,7 +311,8 @@ src/jev/questions.js     every question and threshold               ← edit wor
 src/jev/pipelines.js     the four ways a move gets chosen
 public/                  the board and panels (no framework, no build step)
 screenshots/             evidence from the last browser check (committed)
-tools/experiment.mjs     measures Jev's chess judgement
+tools/experiment.mjs     measures Jev's chess judgement against engine-proved labels
+tools/selfplay.mjs       match runner + "does Jev's judgement add anything?" metric
 tools/smoke.mjs          drives a running server end to end
 tools/browser-check.mjs  renders the app in headless Chrome and plays real moves
 tools/win-key.mjs        store / inspect / clear the API key in Windows secure storage
@@ -314,8 +339,8 @@ tools/win-key.mjs        store / inspect / clear the API key in Windows secure s
 ## Ideas that would make it stronger
 
 - Run the experiment suite against real Jev and retune the questions and weights.
-- Add a "Jev impact" scoreboard: play `balanced` vs `code-only` over many games and count
-  how often Jev's judgement beat the search's own top move.
+- Run the match runner for real (`npm run selfplay -- --games=20`) and settle whether the
+  `balanced` preset beats `code-only`. The instrument exists now; the answer does not.
 - Feed the audit verdict back in: use `audit_*` answers as extra signals in the composite.
 - Per-question confidence gates, so a low-confidence dimension is dropped instead of
   weighted equally.
