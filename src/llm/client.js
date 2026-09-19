@@ -36,7 +36,14 @@ export const GEMINI_MODELS = {
   "gemini-3.1-pro-preview": { in: 2.0, out: 12.0, thinking: "high", stable: false, note: "preview, no free tier" },
 };
 
-export const DEFAULT_MODEL = "gemini-3.8-flash";
+/**
+ * The default is the lite model, not the flagship, for a blunt practical reason: the Gemini free
+ * tier allows **20 requests per day** for `gemini-3.8-flash`, which a single Jev-vs-Jev game can
+ * exhaust, while `gemini-3.5-flash-lite` plans just as sensibly at half the cost and half the
+ * latency ($0.00067 vs $0.00131 per review, 3.8 s vs 7.5 s measured) and still had quota. Set
+ * `GEMINI_MODEL=gemini-3.8-flash` when you have the quota and want the better plans.
+ */
+export const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 export const THINKING_LEVELS = ["minimal", "low", "medium", "high"];
 
 /** Models that error on `minimal`, per the 3.8 Flash model page. */
