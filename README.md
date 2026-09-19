@@ -404,9 +404,15 @@ tools/real-check.mjs     "is this server really talking to Jev?" against a live 
 
 ## Ideas that would make it stronger
 
-- Run the experiment suite against real Jev and retune the questions and weights.
-- Run the match runner for real (`npm run selfplay -- --games=20`) and settle whether the
-  `balanced` preset beats `code-only`. The instrument exists now; the answer does not.
+- Settle the weight question with a sweep: `npm run selfplay -- --weights="search=0.6,..."`.
+  The measurement above says `balanced` should probably lean harder on the search, and the
+  flag now exists to test it properly.
+- Play a real match (`npm run selfplay -- --games=20`, a few cents). Two games per
+  configuration is not a match, and the match is the only yardstick here that is not the
+  search grading itself.
+- Harden the prompt-shape experiment with positional positions. On the current tactical set
+  all four state shapes scored 100%, so it cannot yet say whether the board diagrams earn
+  their ~1.3k tokens.
 - Feed the audit verdict back in: use `audit_*` answers as extra signals in the composite.
 - Per-question confidence gates, so a low-confidence dimension is dropped instead of
   weighted equally.
