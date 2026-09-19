@@ -13,6 +13,8 @@ import { resolveStrategy, DEFAULT_STRATEGY_ID, PIPELINES } from "./strategies.js
 import { selectMove } from "./jev/pipelines.js";
 import { noul } from "./jev/client.js";
 import { readNoulAnswer } from "./jev/questions.js";
+import { applyPlan, describePlan } from "./llm/plan.js";
+import { phaseForPosition, reviewPlan, shouldReview } from "./llm/strategist.js";
 
 const AI_MOVE_DELAY_MS = 700;
 const CLOCK_TICK_MS = 250;
@@ -40,6 +42,7 @@ export class Game {
     timeControl = null,
     playerConfigs = {},
     jevClient,
+    llmClient = null,
     modelName = "jev-latest",
     hasApiKey = false,
     aiMoveDelayMs = AI_MOVE_DELAY_MS,
@@ -49,6 +52,10 @@ export class Game {
     this.humanColor = mode === "human-vs-jev" ? humanColor : null;
     this.createdAt = Date.now();
     this.jevClient = jevClient;
+    this.llmClient = llmClient;
+    // Per-seat strategist state: the plan in force, when it was made, what it cost and what went
+    // wrong. Kept here rather than in the pipeline because a plan outlives a single move.
+    this.planStates = { w: makePlanState(), b: makePlanState() };
     this.modelName = modelName;
     this.hasApiKey = hasApiKey;
     // Pacing between the two AI seats, so a person can watch the pieces move. Zero is
@@ -172,6 +179,27 @@ export class Game {
         model: this.modelName,
         lastError: this.lastError,
       },
+      llm: this.#llmSnapshot(),
+    };
+  }
+
+  /**
+   * What the UI needs to know about the strategy layer: whether it is configured, what it has
+   * cost so far, and the plan each seat is currently playing under.
+   */
+  #llmSnapshot() {
+    const white = this.planStates.w;
+    const black = this.planStates.b;
+    return {
+      configured: Boolean(this.llmClient),
+      provider: this.llmClient?.provider ?? null,
+      model: this.llmClient?.model ?? null,
+      mock: Boolean(this.llmClient?.mock),
+      reviews: (white.reviews ?? 0) + (black.reviews ?? 0),
+      costUsd: Math.round((((white.costUsd ?? 0) + (black.costUsd ?? 0))) * 1e6) / 1e6,
+      tokens: (white.tokens ?? 0) + (black.tokens ?? 0),
+      lastError: white.lastError ?? black.lastError ?? null,
+      plans: { w: white.plan ?? null, b: black.plan ?? null },
     };
   }
 
@@ -506,6 +534,88 @@ export class Game {
     });
   }
 
+  /**
+   * The strategy for one AI turn, consulting the strategist when this seat plans.
+   *
+   * The plan is reviewed at a trigger, not every move — see `shouldReview` — and whatever happens
+   * the returned strategy is playable: if the strategist fails or answers nonsense, the plan in
+   * force (or the bare preset) stands and the failure is recorded rather than thrown.
+   */
+  async #resolveStrategyForTurn(turn, player) {
+    const base = player.strategy;
+    const state = this.planStates[turn];
+    if (!base?.llmPlan) return { strategy: base, reviewed: false };
+    if (!this.llmClient) {
+      const error = "the strategist is not configured (no Gemini key)";
+      state.lastError = error;
+      // Recorded on the strategy so the move record carries the reason instead of silence.
+      state.meta = { ...(state.meta ?? {}), error, mock: false, model: null, api: null };
+      return { strategy: applyCachedPlan(base, state), reviewed: false };
+    }
+
+    const lastJev = [...this.history].reverse().find((entry) => entry.jev?.assessment?.labels);
+    const labels = lastJev?.jev?.assessment?.labels ?? null;
+    const lastMove = this.history[this.history.length - 1] ?? null;
+    const pliesSinceReview = this.history.length - (state.reviewedAtPly ?? 0);
+    const targetTouched = Boolean(state.plan && lastMove && state.plan.targets?.includes(lastMove.to));
+    const evalCp = typeof this.evalBar?.cp === "number" ? this.evalBar.cp : null;
+    // Code's phase, not Jev's: a per-position judgement flips around and would fire a review every
+    // move (that bug cost 83 reviews in 89 plies before it was caught).
+    const phase = phaseForPosition(this.chess);
+
+    const { review, reason, thinkingLevel } = shouldReview({
+      plan: state.plan,
+      pliesSinceReview,
+      phase,
+      planPhase: state.planPhase,
+      evalCp,
+      planEvalCp: state.planEvalCp,
+      targetTouched,
+    });
+
+    if (!review) return { strategy: applyCachedPlan(base, state), reviewed: false };
+
+    const result = await reviewPlan({
+      llmClient: this.llmClient,
+      chess: this.chess,
+      baseStrategy: base,
+      currentPlan: state.plan,
+      pliesSinceReview,
+      evalCp,
+      evalLabel: this.evalBar?.label ?? null,
+      phase,
+      lastMoves: this.history.map((entry) => entry.san),
+      opponentLastMove: lastMove ? { san: lastMove.san, from: lastMove.from, to: lastMove.to, color: lastMove.color } : null,
+      jevRead: labels,
+      thinkingLevel,
+      reason,
+    });
+
+    state.reviews += 1;
+    state.lastReason = reason;
+    state.lastReviewAt = Date.now();
+    if (typeof result.costUsd === "number") state.costUsd = (state.costUsd ?? 0) + result.costUsd;
+    if (result.usage) state.tokens = (state.tokens ?? 0) + (result.usage.inputTokens ?? 0) + (result.usage.outputTokens ?? 0);
+
+    if (result.ok) {
+      state.plan = result.plan;
+      // Code's phase, matching what the trigger compares against — storing Jev's read here was
+      // the bug that made every move look like a phase change.
+      state.planPhase = phase;
+      state.planEvalCp = evalCp;
+      state.reviewedAtPly = this.history.length;
+      state.lastError = null;
+      state.meta = planMetaFrom(result, { state, pliesSinceReview, applied: result.applied });
+      this.#notice("info", `Plan: ${describePlan(result.plan)}${result.plan.commentary ? ` — ${result.plan.commentary}` : ""}`);
+    } else {
+      state.lastError = result.error ?? "the strategist failed";
+      state.meta = planMetaFrom(result, { state, pliesSinceReview, applied: state.applied });
+      this.#notice("warn", `Strategist unavailable (${state.lastError}); continuing on the plan in force.`);
+    }
+
+    return { strategy: applyCachedPlan(base, state), reviewed: true, result };
+  }
+
   async #runAiTurn(token) {
     const turn = this.chess.turn();
     const player = this.players[turn];
@@ -516,12 +626,16 @@ export class Game {
     this.emit("ai-thinking", { side: turn, playerName: player.name, strategyName: player.name, startedAt: this.ai.startedAt });
     this.#emitState();
 
+    // A strategy that plans asks the strategist before Jev judges the candidates. The plan is
+    // reviewed only at a trigger (see shouldReview), so most moves reuse the plan in force.
+    const { strategy: activeStrategy } = await this.#resolveStrategyForTurn(turn, player);
+
     let move = null;
     let record = null;
     try {
       const result = await selectMove({
         chess: this.chess,
-        strategy: player.strategy,
+        strategy: activeStrategy,
         jevClient: this.jevClient,
         lastMovesSan: this.history.map((entry) => entry.san),
         onEvent: (event) => {
@@ -610,6 +724,60 @@ function publicPlayer(player) {
     weights: player.weights,
     candidateLimit: player.strategy?.candidateLimit ?? null,
     searchDepth: player.strategy?.searchDepth ?? null,
+    usesStrategist: Boolean(player.strategy?.llmPlan),
+    strategyName: player.strategy?.name ?? null,
+  };
+}
+
+/** Fresh strategist state for one seat. */
+function makePlanState() {
+  return {
+    plan: null,
+    meta: null,
+    applied: null,
+    planPhase: null,
+    planEvalCp: null,
+    reviewedAtPly: 0,
+    reviews: 0,
+    costUsd: 0,
+    tokens: 0,
+    lastError: null,
+    lastReason: null,
+    lastReviewAt: null,
+  };
+}
+
+/**
+ * Re-apply the plan in force to the bare preset. Cheap and pure, and done on every planned move
+ * because `player.strategy` stays untouched: the preset is the base, the plan is a layer.
+ */
+function applyCachedPlan(base, state) {
+  if (!state.plan) {
+    return state.lastError ? { ...base, planMeta: state.meta ?? { error: state.lastError } } : base;
+  }
+  const { strategy, applied } = applyPlan(base, state.plan);
+  return { ...strategy, planMeta: state.meta ? { ...state.meta, applied } : null };
+}
+
+/** Shape a strategist result for the move record, whether it succeeded or not. */
+function planMetaFrom(result, { state, pliesSinceReview, applied }) {
+  return {
+    promptVersion: result.promptVersion,
+    reason: result.reason,
+    thinkingLevel: result.thinkingLevel,
+    model: result.model,
+    api: result.api,
+    mock: result.mock,
+    usage: result.usage,
+    costUsd: result.costUsd,
+    elapsedMs: result.elapsedMs,
+    problems: result.problems ?? [],
+    warnings: result.warnings ?? [],
+    notes: result.notes ?? [],
+    reviewedAtPly: state.reviewedAtPly,
+    pliesSinceReview,
+    applied: applied ?? null,
+    error: result.ok ? null : result.error ?? null,
   };
 }
 

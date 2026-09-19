@@ -186,6 +186,22 @@ export const PRESETS = [
     },
   },
   {
+    id: "strategist",
+    name: "Strategist (Gemini plan + Jev)",
+    description:
+      "A reasoning model chooses the plan from a fixed vocabulary and shifts the scoring weights; the code " +
+      "search keeps it legal and tactical; Jev judges the candidates. Costs one Gemini call every few plies " +
+      "on top of Jev's per-move call, and a plan that fails validation is ignored rather than obeyed.",
+    pipeline: "shortlist-composite",
+    candidateLimit: 12,
+    searchDepth: 3,
+    quiescence: 2,
+    temperature: 0.1,
+    dims: ["quality", "safety", "activity", "kingPressure", "kingSafety"],
+    weights: { search: 0.3, choice: 0.15, quality: 0.2, safety: 0.15, activity: 0.1, kingPressure: 0.05, kingSafety: 0.05 },
+    llmPlan: true,
+  },
+  {
     id: "tactical",
     name: "Tactical (hard to beat)",
     description:
@@ -348,6 +364,8 @@ export function resolveStrategy({ strategyId, weights, timeBudgetMs } = {}) {
     includeBoards: preset.includeBoards !== false,
     exposeCaptureEvidence: Boolean(preset.exposeCaptureEvidence),
     includeSearchHints: Boolean(preset.includeSearchHints),
+    // A strategy that asks the strategist for a plan before Jev judges the candidates.
+    llmPlan: Boolean(preset.llmPlan),
     weights: active,
     presetWeights: preset.weights,
     weightsNormalized: total > 0 ? Object.fromEntries(Object.entries(active).map(([k, v]) => [k, v / total])) : {},

@@ -360,16 +360,18 @@ export class MockLlmClient {
     const seed = hash32(String(input ?? ""));
     const kinds = ["improve_pieces", "attack_king", "pawn_break", "minority_attack", "trade_to_endgame", "restrain", "activate_king", "defend_hold"];
     const files = "abcdefgh";
+    // Unsigned shifts throughout: `hash32` returns a value up to 2^32-1, and `>>` is signed, which
+    // turned "3 + (seed >> 12) % 6" negative and clamped every mock plan to a one-ply review.
     const plan = kinds[seed % kinds.length];
-    const target = `${files[(seed >> 3) % 8]}${2 + ((seed >> 6) % 6)}`;
+    const target = `${files[(seed >>> 3) % 8]}${2 + ((seed >>> 6) % 6)}`;
     const json = {
       plan,
       targets: seed % 3 === 0 ? [] : [target],
-      risk: ["hold", "balanced", "complicate"][(seed >> 9) % 3],
-      review_after_plies: 3 + ((seed >> 12) % 6),
+      risk: ["hold", "balanced", "complicate"][(seed >>> 9) % 3],
+      review_after_plies: 3 + ((seed >>> 12) % 6),
       weight_deltas: seed % 2 === 0 ? { activity: 0.05 } : {},
       ask_jev: [],
-      opponent_plan: kinds[(seed >> 15) % kinds.length],
+      opponent_plan: kinds[(seed >>> 15) % kinds.length],
       commentary: `Mock strategist output for position hash ${seed.toString(16).slice(0, 6)} — not real chess judgement.`,
     };
     const inputTokens = Math.ceil(String(input ?? "").length / 4);

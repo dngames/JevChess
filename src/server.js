@@ -15,7 +15,8 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadDotEnv, describeApiKey } from "./env.js";
-import { resolveApiKey } from "./win-key.js";
+import { resolveApiKey, resolveSecret } from "./win-key.js";
+import { DEFAULT_MODEL as DEFAULT_GEMINI_MODEL, createLlmClient } from "./llm/client.js";
 import { createJevClient } from "./jev/client.js";
 import { Game } from "./game.js";
 import { strategiesPayload, getPreset, DEFAULT_STRATEGY_ID } from "./strategies.js";
@@ -41,6 +42,23 @@ const VERSION = await readVersion();
 // Environment/.env first (a shell variable overrides), then Windows secure storage.
 // resolveApiKey never throws: a missing or unreadable stored key just means mock play.
 const { key: API_KEY, source: KEY_SOURCE } = await resolveApiKey();
+
+// The strategist is optional and independent of Jev. With no Gemini key the planning strategies
+// fall back to their preset and say so in the move record, rather than inventing plans with a mock.
+const { key: GEMINI_KEY, source: GEMINI_KEY_SOURCE } = await resolveSecret("gemini");
+const FORCE_LLM_MOCK = ["1", "true", "yes"].includes(String(process.env.GEMINI_MOCK ?? "").toLowerCase());
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
+const llmClient =
+  GEMINI_KEY || FORCE_LLM_MOCK
+    ? createLlmClient({
+        apiKey: GEMINI_KEY,
+        forceMock: FORCE_LLM_MOCK || !GEMINI_KEY,
+        model: GEMINI_MODEL,
+        onLog: (entry) => {
+          if (entry.event === "gemini-error") console.warn(`[gemini] ${entry.code ?? "error"}: ${entry.message ?? ""}`);
+        },
+      })
+    : null;
 
 const jevClient = createJevClient({
   apiKey: API_KEY,
@@ -71,6 +89,11 @@ server.listen(PORT, HOST, () => {
   console.log(`JevChess ${VERSION} listening on ${url}`);
   console.log(`  model:   ${MODEL}`);
   console.log(`  api key: ${describeApiKey(API_KEY)} — from ${KEY_SOURCE}${jevClient.mock ? "  → running MOCK Jev (deterministic answers, not real chess judgement)" : ""}`);
+  console.log(
+    llmClient
+      ? `  strategist: ${llmClient.model}${llmClient.mock ? " (MOCK: plans are fake)" : ""} — from ${GEMINI_KEY_SOURCE}`
+      : "  strategist: not configured (add a Gemini key, then the 'Strategist' preset has a planner)",
+  );
   console.log(`  strategies: ${strategiesPayload().presets.length} presets; default ${DEFAULT_STRATEGY_ID}`);
   console.log(`  open ${url} in your browser.`);
 });
@@ -115,6 +138,13 @@ async function handle(req, res) {
       version: VERSION,
       model: MODEL,
       hasApiKey: Boolean(API_KEY),
+      llm: {
+        configured: Boolean(llmClient),
+        model: llmClient?.model ?? null,
+        mock: Boolean(llmClient?.mock),
+        hasApiKey: Boolean(GEMINI_KEY),
+        source: GEMINI_KEY_SOURCE,
+      },
       mock: Boolean(jevClient.mock),
       games: sessions.size,
       serverTime: Date.now(),
@@ -234,6 +264,7 @@ function createGame(config) {
         jevClient,
         modelName: MODEL,
         hasApiKey: Boolean(API_KEY),
+        llmClient,
       });
       chessProbe.dispose();
     } catch (error) {
@@ -278,6 +309,7 @@ function createGame(config) {
     jevClient,
     modelName: MODEL,
     hasApiKey: Boolean(API_KEY),
+    llmClient,
   });
 
   const session = { game, sse: new Set() };

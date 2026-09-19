@@ -189,9 +189,39 @@ async function shortlistComposite({ chess, strategy, jevClient, lastMovesSan, em
     notes.push(`Jev reads the position as: ${assessment.labels.standing}${assessment.labels.plan ? `, and would ${assessment.labels.plan}` : ""}.`);
   }
 
+  // A plan, if one was in force, is part of the record: what it was, what it did to the weights,
+  // what it cost and when it was last reviewed. The weights in `record.weights` are already the
+  // plan-adjusted ones, so the panel shows the mix that actually decided the move.
+  const planMeta = strategy.planMeta ?? null;
+  const llm = strategy.plan
+    ? {
+        enabled: true,
+        promptVersion: planMeta?.promptVersion ?? null,
+        plan: strategy.plan,
+        applied: planMeta?.applied ?? null,
+        reason: planMeta?.reason ?? null,
+        thinkingLevel: planMeta?.thinkingLevel ?? null,
+        model: planMeta?.model ?? null,
+        api: planMeta?.api ?? null,
+        mock: Boolean(planMeta?.mock),
+        usage: planMeta?.usage ?? null,
+        costUsd: planMeta?.costUsd ?? null,
+        elapsedMs: planMeta?.elapsedMs ?? null,
+        reviewedAtPly: planMeta?.reviewedAtPly ?? null,
+        pliesSinceReview: planMeta?.pliesSinceReview ?? null,
+        problems: planMeta?.problems ?? [],
+        warnings: planMeta?.warnings ?? [],
+        notes: planMeta?.notes ?? [],
+        error: planMeta?.error ?? null,
+      }
+    : null;
+  if (llm?.notes?.length) notes.unshift(...llm.notes);
+  else if (planMeta?.error) notes.unshift(`No plan this move: ${planMeta.error}`);
+
   const record = {
     mock: Boolean(mock),
     model: model ?? null,
+    llm,
     pipeline: "shortlist-composite",
     pipelineName: "Shortlist + composite scoring",
     strategyId: strategy.id,
