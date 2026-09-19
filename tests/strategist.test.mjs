@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import { Game } from "../src/game.js";
 import { MockLlmClient } from "../src/llm/client.js";
 import { EVAL_SWING_CP, shouldReview } from "../src/llm/strategist.js";
+import { resolveStrategy } from "../src/strategies.js";
 
 let passed = 0;
 const failures = [];
@@ -260,6 +261,33 @@ await test("the plan reaches the scoring weights and the snapshot exposes it", a
   assert.ok(blackMoves.every((entry) => entry.jev.llm === null), "the balanced seat must not");
   assert.equal(snapshot.players.w.usesStrategist, true);
   assert.equal(snapshot.players.b.usesStrategist, false);
+  game.dispose();
+});
+
+await test("a routing-only seat plays under a plan with its weights left alone", async () => {
+  // The switch has to survive the whole loop, not just applyPlan: this is the preset whose
+  // measured point is that the plan never touches the mix.
+  const llm = new MockLlmClient();
+  const game = makeGame({ players: { w: SEAT("strategist-routing"), b: SEAT("balanced") }, llmClient: llm });
+  await playPlies(game, 8);
+  const snapshot = game.snapshot();
+
+  const planned = snapshot.history.filter((entry) => entry.color === "w" && entry.jev?.llm);
+  assert.ok(planned.length > 0, "the routing seat still plans");
+  const preset = resolveStrategy({ strategyId: "strategist-routing" });
+  for (const entry of planned) {
+    const weights = entry.jev.weights ?? {};
+    assert.deepEqual(Object.keys(weights).sort(), Object.keys(preset.weightsNormalized).sort(), "same dimensions in the mix");
+    for (const [key, value] of Object.entries(weights)) {
+      assert.ok(
+        Math.abs(value - preset.weightsNormalized[key]) < 1e-9,
+        `${key} must be the preset's own weight, got ${value} vs ${preset.weightsNormalized[key]}`,
+      );
+    }
+    assert.equal(entry.jev.llm.applied?.routingOnly, true);
+    assert.deepEqual(entry.jev.llm.applied?.weights, {}, "nothing may be reported as a weight shift");
+  }
+  assert.equal(snapshot.players.w.usesStrategist, true);
   game.dispose();
 });
 

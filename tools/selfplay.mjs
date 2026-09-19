@@ -40,7 +40,7 @@ import { loadDotEnv } from "../src/env.js";
 import { resolveApiKey, resolveSecret } from "../src/win-key.js";
 import { createJevClient } from "../src/jev/client.js";
 import { DEFAULT_MODEL as DEFAULT_GEMINI_MODEL, createLlmClient } from "../src/llm/client.js";
-import { resolveStrategy, getPreset } from "../src/strategies.js";
+import { resolveStrategy, getPreset, PRESETS } from "../src/strategies.js";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 loadDotEnv(join(ROOT, ".env"));
@@ -76,7 +76,8 @@ const WEIGHTS = (() => {
 
 for (const id of [SEAT_A, SEAT_B]) {
   if (!getPreset(id)) {
-    console.error(`Unknown strategy "${id}". Available: ${["balanced", "tactical", "positional", "attacking", "endgame", "pure-jev", "jev-verify", "code-only"].join(", ")}`);
+    // Derived from the presets themselves: a hand-written list here has already gone stale once.
+    console.error(`Unknown strategy "${id}". Available: ${PRESETS.map((preset) => preset.id).join(", ")}`);
     process.exit(2);
   }
 }

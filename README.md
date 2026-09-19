@@ -6,7 +6,7 @@ the move it produced.
 
 - **Human vs Jev** — you take either colour, Jev takes the other.
 - **Jev vs Jev** — two strategies play each other, move by move, with pause and step.
-- **Configurable strategy per seat** — 9 presets (one labelled *best*, one that plans with a reasoning model) plus sliders that
+- **Configurable strategy per seat** — 10 presets (one labelled *best*, two that plan with a reasoning model) plus sliders that
   change how the code's search and Jev's judgements are blended.
 - **Zero dependencies, no build step** — a plain Node server and plain browser modules.
 
@@ -130,6 +130,7 @@ meaningful search weight.
 | --- | --- | --- |
 | **Balanced (best)** | shortlist + composite | Default for both seats |
 | **Strategist** | shortlist + composite | A reasoning model picks the plan and shifts the weights; needs a Gemini key |
+| **Strategist (routing only)** | shortlist + composite | The same plan, but it may only choose which of Jev's questions get asked — never a weight. The control for the one part of the strategy layer that measured as costing material |
 | Tactical (hard to beat) | shortlist + composite | 4-ply search, 60% of the weight on the search, Jev asked only quality + safety |
 | Positional | shortlist + composite | Jev judges activity, pawn structure, own king safety |
 | Attacking | shortlist + composite | Jev's king-pressure score dominates |

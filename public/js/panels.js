@@ -743,6 +743,9 @@ function renderPlan(container, { planned, meta, gameLlm, game = null, color = nu
   const shifts = meta && meta.applied && meta.applied.weights ? Object.entries(meta.applied.weights) : [];
   const dims = meta && meta.applied && Array.isArray(meta.applied.dims) ? meta.applied.dims : [];
   const lines = [];
+  if (meta && meta.applied && meta.applied.routingOnly === true) {
+    lines.push("This preset routes plans to Jev's questions only — the weights are left exactly as the preset set them.");
+  }
   if (shifts.length > 0) {
     lines.push(`Weights shifted: ${shifts.map(([key, delta]) => `${key} ${delta > 0 ? "+" : ""}${Number(delta).toFixed(2)}`).join(", ")}`);
   }

@@ -202,6 +202,23 @@ export const PRESETS = [
     llmPlan: true,
   },
   {
+    id: "strategist-routing",
+    name: "Strategist (routing only)",
+    description:
+      "The same Gemini planning step as the Strategist, minus the weight shift: the plan may choose which of " +
+      "Jev's questions to ask, but the preset's weights stay exactly as they are. This is the control for the " +
+      "one part of the strategy layer that measured as costing material.",
+    pipeline: "shortlist-composite",
+    candidateLimit: 12,
+    searchDepth: 3,
+    quiescence: 2,
+    temperature: 0.1,
+    dims: ["quality", "safety", "activity", "kingPressure", "kingSafety"],
+    weights: { search: 0.3, choice: 0.15, quality: 0.2, safety: 0.15, activity: 0.1, kingPressure: 0.05, kingSafety: 0.05 },
+    llmPlan: true,
+    routingOnly: true,
+  },
+  {
     id: "tactical",
     name: "Tactical (hard to beat)",
     description:
@@ -366,6 +383,10 @@ export function resolveStrategy({ strategyId, weights, timeBudgetMs } = {}) {
     includeSearchHints: Boolean(preset.includeSearchHints),
     // A strategy that asks the strategist for a plan before Jev judges the candidates.
     llmPlan: Boolean(preset.llmPlan),
+    // A planning seat that lets the plan route Jev's questions but never shift the weights.
+    // The full Strategist's weight shift is what measured as costing material (-88 cp per
+    // deviation vs -34 cp for the same judge with no plan), so this is the control for it.
+    routingOnly: Boolean(preset.routingOnly),
     weights: active,
     presetWeights: preset.weights,
     weightsNormalized: total > 0 ? Object.fromEntries(Object.entries(active).map(([k, v]) => [k, v / total])) : {},

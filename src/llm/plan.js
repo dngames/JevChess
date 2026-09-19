@@ -245,30 +245,45 @@ export function planSignature(plan) {
  *
  * Rules, all deliberate:
  *  - weight deltas are added to a *copy* and clamped to 0..1, so a plan can nudge the mix but
- *    never invert the strategy's character;
+ *    never invert the strategy's character. A `routingOnly` strategy skips this step entirely:
+ *    it still lets the plan choose which questions Jev is asked, which is the half of the
+ *    strategy layer that costs no playing strength;
  *  - routing is intersected with the dimensions this strategy actually weighs. Asking Jev
  *    about a dimension nothing weights would cost tokens and change nothing — a silent
  *    no-op is worse than a dropped request, so it is dropped and reported;
  *  - the pipeline, candidate limit and search budget are untouched. A strategist chooses
  *    emphasis, not machinery.
  *
- * @returns {{strategy: object, applied: {weights: object, dims: string[], dropped: string[], notes: string[]}}}
+ * @returns {{strategy: object, applied: {weights: object, dims: string[], dropped: string[], routingOnly: boolean, notes: string[]}}}
  */
 export function applyPlan(strategy, plan) {
   const notes = [];
-  if (!plan) return { strategy, applied: { weights: {}, dims: strategy.dims ?? [], dropped: [], notes } };
+  const routingOnly = strategy.routingOnly === true;
+  if (!plan) {
+    return { strategy, applied: { weights: {}, dims: strategy.dims ?? [], dropped: [], routingOnly, notes } };
+  }
 
   const weighable = Object.keys(strategy.weights ?? {}).filter((key) => DIMENSION_IDS.includes(key));
   const weights = { ...strategy.weights };
   const appliedWeights = {};
+  const skipped = [];
   for (const [key, delta] of Object.entries(plan.weightDeltas ?? {})) {
     if (!Object.prototype.hasOwnProperty.call(weights, key)) {
       notes.push(`plan wanted to shift ${key}, which this strategy does not weigh; ignored`);
       continue;
     }
+    if (routingOnly) {
+      // Deliberately not applied, but never silently: the panel says the plan routed and the
+      // weights were left alone, so nobody reads this as the plan having shifted anything.
+      skipped.push(`${key} ${delta > 0 ? "+" : ""}${delta}`);
+      continue;
+    }
     const before = weights[key];
     weights[key] = Math.round(clamp(before + delta, 0, 1) * 1000) / 1000;
     if (weights[key] !== before) appliedWeights[key] = Math.round((weights[key] - before) * 1000) / 1000;
+  }
+  if (skipped.length > 0) {
+    notes.push(`plan would have shifted ${skipped.join(", ")}, but this preset routes plans to Jev's questions only; weights unchanged`);
   }
 
   const requested = plan.askJev ?? [];
@@ -287,6 +302,7 @@ export function applyPlan(strategy, plan) {
     weights: appliedWeights,
     dims,
     dropped,
+    routingOnly,
     notes,
   };
 

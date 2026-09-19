@@ -300,7 +300,7 @@ no field was renamed or removed.
     {
       "enabled": true, "promptVersion": "plan-v1",
       "plan": Plan,                  // the plan in force when this move was chosen
-      "applied": { "weights": { "activity": 0.1 }, "dims": ["quality","activity"], "dropped": [], "notes": ["…"] },
+      "applied": { "weights": { "activity": 0.1 }, "dims": ["quality","activity"], "dropped": [], "routingOnly": false, "notes": ["…"] },
       "reason": "phase-change",      // why the strategist was asked
       "thinkingLevel": "medium", "model": "gemini-3.5-flash-lite", "api": "interactions",
       "mock": false,
@@ -316,7 +316,10 @@ no field was renamed or removed.
     in force. `applied.weights` holds the *deltas* actually applied to the preset (after
     clamping to ±0.25 and dropping unweighable dimensions into `dropped`), while
     `MoveRecord.weights` is the final, plan-adjusted mix — so the sliders a user sees match
-    the judgement that was rendered.
+    the judgement that was rendered. `applied.routingOnly` is true when the preset keeps the
+    plan's routing but refuses its weight deltas (`strategist-routing`, added because the
+    weight shift measured as the part of the layer that costs material): `applied.weights` is
+    then always `{}` and `applied.notes` says which deltas were skipped and why.
 11. **Whose move it is must be legible before the piece moves** (extends UI requirement 11).
     Three indicators, all derived from `GameState.turn` rather than a local guess: the board
     hint leads with "White/Black to move" and carries `data-turn`; the card of the side to

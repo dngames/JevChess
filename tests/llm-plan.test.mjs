@@ -182,8 +182,52 @@ test("weight deltas move the mix and are reflected in the normalised weights", (
   assert.deepEqual(strategy.weights, before, "the original strategy must not be mutated");
 });
 
-test("a plan cannot push a weight outside 0..1", () => {
-  const strategy = BALANCED();
+test("routing-only: the plan may choose Jev's questions but must not move a weight", () => {
+  // The measured reason this preset exists: the weight shift is the part of the strategy layer
+  // that cost material, while routing costs no playing strength.
+  const strategy = { ...BALANCED(), routingOnly: true };
+  const before = { ...strategy.weights };
+  const plan = validatePlan({ ...GOOD_PLAN, weight_deltas: { quality: 0.25, search: -0.25 }, ask_jev: ["safety"] }).plan;
+  const { strategy: planned, applied } = applyPlan(strategy, plan);
+
+  assert.deepEqual(planned.weights, before, "no weight may change under a routing-only plan");
+  assert.deepEqual(applied.weights, {}, "and nothing may be reported as applied");
+  assert.equal(applied.routingOnly, true);
+  assert.deepEqual(applied.dims, ["safety"], "routing still decides which questions Jev gets");
+  assert.deepEqual(planned.dims, ["safety"]);
+  assert.ok(
+    applied.notes.some((entry) => /weights unchanged/.test(entry)),
+    `the skipped shift must be said out loud, got ${JSON.stringify(applied.notes)}`,
+  );
+  assert.ok(
+    applied.notes.some((entry) => /quality \+0.25/.test(entry)),
+    "the note names what was asked for, so the plan is not silently ignored",
+  );
+});
+
+test("routing-only: still narrows to the plan's own dimensions when it asks for none", () => {
+  const strategy = { ...BALANCED(), routingOnly: true };
+  const plan = validatePlan({ ...GOOD_PLAN, plan: "trade_to_endgame", ask_jev: [], weight_deltas: {} }).plan;
+  const { strategy: planned, applied } = applyPlan(strategy, plan);
+  assert.equal(applied.routingOnly, true);
+  assert.deepEqual(planned.weights, strategy.weights);
+  assert.ok(planned.dims.length > 0, "the plan's own dimensions still route the questions");
+});
+
+test("routing-only is off unless the preset asks for it", () => {
+  const { applied } = applyPlan(BALANCED(), validatePlan({ ...GOOD_PLAN, weight_deltas: { quality: 0.1 } }).plan);
+  assert.equal(applied.routingOnly, false, "an ordinary preset still lets a plan shift its weights");
+});
+
+test("the routing-only preset exists, plans, and resolves with the switch set", () => {
+  const preset = resolveStrategy({ strategyId: "strategist-routing" });
+  assert.equal(preset.routingOnly, true);
+  assert.equal(preset.llmPlan, true, "it must still ask for a plan");
+  assert.equal(preset.pipeline, "shortlist-composite");
+  assert.deepEqual(preset.weights, resolveStrategy({ strategyId: "strategist" }).weights, "same base weights as the full Strategist");
+});
+
+test("a plan cannot push a weight outside 0..1", () => {  const strategy = BALANCED();
   strategy.weights.kingPressure = 0.02;
   const { strategy: planned } = applyPlan(strategy, validatePlan({ ...GOOD_PLAN, weight_deltas: { kingPressure: -0.25 } }).plan);
   assert.equal(planned.weights.kingPressure, 0);
