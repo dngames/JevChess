@@ -34,18 +34,23 @@ import { Chess } from "../src/engine/chess.js";
 import { analyzeRoot } from "../src/engine/search.js";
 import { loadDotEnv } from "../src/env.js";
 import { createJevClient } from "../src/jev/client.js";
+import { resolveApiKey } from "../src/win-key.js";
 import { buildJevState } from "../src/jev/state.js";
 import { buildCandidateQuestions, readChoiceAnswer, readScoreAnswer, DIMENSIONS } from "../src/jev/questions.js";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 loadDotEnv(join(ROOT, ".env"));
 
-const FORCE_MOCK = process.argv.includes("--mock") || !(process.env.TYPESAFE_API_KEY ?? "").trim();
+// Same key resolution as the server: environment/.env first, then Windows secure storage,
+// so `npm run key:set` alone is enough to make this work.
+const { key: API_KEY, source: KEY_SOURCE } = await resolveApiKey();
+
+const FORCE_MOCK = process.argv.includes("--mock") || !API_KEY;
 const ONLY = argValue("--only"); // e.g. --only prompt-shape
 const MODEL = process.env.TYPESAFE_MODEL ?? "jev-latest";
 
 const client = createJevClient({
-  apiKey: (process.env.TYPESAFE_API_KEY ?? "").trim(),
+  apiKey: API_KEY,
   forceMock: FORCE_MOCK,
   model: MODEL,
   maxAttempts: 3,
@@ -83,7 +88,8 @@ const SEEDS = [
 const results = { startedAt: new Date().toISOString(), model: MODEL, mock: FORCE_MOCK, experiments: {} };
 
 console.log(`JevChess — is Jev any good at chess?`);
-console.log(`model: ${MODEL}${FORCE_MOCK ? "   [MOCK: the numbers below are meaningless, they only prove the harness runs]" : ""}\n`);
+console.log(`model: ${MODEL}   (key from: ${KEY_SOURCE})`);
+console.log(`${FORCE_MOCK ? "[MOCK: the numbers below are meaningless, they only prove the harness runs]\n" : ""}`);
 
 // ---------------------------------------------------------------------------
 // labelling: the engine decides the right answer before Jev is asked
