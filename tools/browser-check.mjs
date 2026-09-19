@@ -176,6 +176,13 @@ const DIAGNOSTICS = `(() => {
       return r.height > 0 && getComputedStyle(row).display !== 'none';
     })(),
     clockTexts: all('.player-card .clock, .player-card [data-clock]').map((n) => n.textContent.trim()),
+    // Whose move is it, before anything moves?
+    hintText: text('#board-hint'),
+    hintTurn: q('#board-hint')?.dataset?.turn ?? null,
+    hintThinking: q('#board-hint')?.dataset?.thinking ?? null,
+    activeCard: (q('.player-card.is-active')?.dataset?.color) ?? null,
+    thinkingCards: all('.player-card[data-thinking="true"]').map((n) => n.dataset.color),
+    turnChips: all('.player-card .player-turn').filter((n) => !n.hidden).map((n) => (n.closest('.player-card')?.dataset?.color ?? '?') + ':' + n.textContent.trim()),
     cardTexts: all('.player-card').map((n) => n.textContent.trim().replace(/\\s+/g, ' ').slice(0, 60)),
     styleSheets: document.styleSheets.length,
     bodyBg: getComputedStyle(document.body).backgroundColor,
@@ -298,6 +305,15 @@ try {
   ok(Boolean(initial.status), `status line says something: "${initial.status}"`);
   ok(initial.drawButtonVisible === true, `"Offer draw" is offered once a game exists (visible: ${initial.drawButtonVisible})`);
   ok(initial.customClockVisible === false, `the custom-clock row obeys "hidden" (visible: ${initial.customClockVisible})`);
+  // "Whose move is it, before the piece moves?" — at load it is White (the human) to move and
+  // nothing has been played yet, so all three indicators have to say so.
+  ok(initial.hintTurn === "w", `the board hint carries the side to move (data-turn="${initial.hintTurn}")`);
+  ok(/white/i.test(initial.hintText), `the hint names the side in words: "${initial.hintText}"`);
+  ok(initial.activeCard === "w", `White's card is marked active before White moves (${initial.activeCard})`);
+  ok(
+    initial.turnChips.some((chip) => chip.startsWith("w:")),
+    `the seat on the move shows a turn chip (${JSON.stringify(initial.turnChips)})`,
+  );
   const gamesAfterLoad = await fetchGames();
   // Deliberate behaviour: the page starts a human-vs-Jev game on load so the board is
   // live immediately (that is also why a clock is running from the first second).
@@ -350,9 +366,18 @@ try {
   // normal — so wait for the first move rather than guessing at a fixed pause.
   const firstMoveDeadline = Date.now() + 90_000;
   let played = await evaluate(DIAGNOSTICS);
+  // A Jev-vs-Jev game spends seconds thinking before each move; sample that window, because
+  // "which colour is on the move" is exactly what the new indicators have to answer there.
+  let thinkingSample = null;
   while (Date.now() < firstMoveDeadline && played.moveListRows === 0) {
-    await sleep(2000);
+    if (!thinkingSample && played.hintThinking === "true") thinkingSample = played;
+    await sleep(1000);
     played = await evaluate(DIAGNOSTICS);
+  }
+  if (thinkingSample) {
+    notes.push(
+      `while the first Jev move was being chosen: hint "${thinkingSample.hintText}" · active card ${thinkingSample.activeCard} · chips ${JSON.stringify(thinkingSample.turnChips)}`,
+    );
   }
 
   const request = gameRequests[gameRequests.length - 1];
@@ -365,6 +390,23 @@ try {
   ok(played.moveListRows > 0, `moves were played and listed (${played.moveListRows} row(s))`);
   ok(played.pieces > 0, `pieces still drawn after moves (${played.pieces})`);
   ok(played.panelChars > 50, `the Jev panel has content (${played.panelChars} chars)`);
+  // The same three indicators must still agree mid-game, with both seats run by Jev.
+  ok(
+    played.hintTurn === "w" || played.hintTurn === "b",
+    `the board hint names the side to move mid-game (data-turn="${played.hintTurn}")`,
+  );
+  ok(
+    played.activeCard === played.hintTurn,
+    `the active player card matches the side to move (card ${played.activeCard} vs turn ${played.hintTurn})`,
+  );
+  ok(
+    played.turnChips.some((chip) => chip.startsWith(`${played.hintTurn}:`)),
+    `the seat on the move shows a turn chip (${JSON.stringify(played.turnChips)})`,
+  );
+  ok(
+    Boolean(thinkingSample),
+    `a watcher could see the seat on the move thinking before the piece moved${thinkingSample ? ` ("${thinkingSample.hintText}")` : " (no thinking snapshot was sampled)"}`,
+  );
 
   // The strategy layer must be visible to a watcher, not just present in the API.
   const planBlock = await evaluate(`(() => {

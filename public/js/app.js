@@ -218,12 +218,21 @@ function renderPlayers(now) {
   const players = game && game.players && typeof game.players === "object" ? game.players : {};
   const clocks = clockContext(game, now, store.serverOffset);
   const over = !!(game && game.status && game.status.over);
+  const ai = game && game.ai && typeof game.ai === "object" ? game.ai : null;
   for (const entry of playerEntries()) {
+    // The server's own thinking state is authoritative here: relying on the local flag alone left
+    // the active seat unmarked whenever a move was triggered from somewhere else (a reload, another
+    // tab, or the AI-vs-AI loop).
+    const serverThinking = Boolean(ai && ai.thinking === true && ai.side === entry.color);
+    const localThinking = Boolean(store.thinking.active && store.thinking.side === entry.color);
+    const thinking = serverThinking || localThinking;
+    const startedAt = serverThinking ? Number(ai.startedAt) : localThinking ? Number(store.thinking.startedAt) : Number.NaN;
     entry.card.update(players[entry.color] || null, entry.color, {
       remainingMs: clocks[entry.color],
       running: clocks.running === entry.color,
       active: !!game && game.turn === entry.color && !over,
-      thinking: store.thinking.active && store.thinking.side === entry.color,
+      thinking,
+      elapsedMs: thinking && Number.isFinite(startedAt) ? Math.max(0, now - startedAt) : null,
     });
   }
 }
@@ -299,16 +308,38 @@ function renderBoardHint() {
     bits.push(
       `Game over: ${asText(game.status.result, "?")}${game.status.reason ? ` (${game.status.reason})` : ""}`,
     );
+  } else if (seatThinking(game)) {
+    // Before the piece moves, say whose move it is and who is on the clock — the thing a watcher
+    // actually needs, and the reason this line exists rather than only the small status text.
+    const elapsed = Math.max(0, localNow() - Number(game.ai?.startedAt ?? localNow()));
+    bits.push(
+      `${sideLabel(game)} to move — ${asText(game.players?.[game.turn]?.name, "Jev")} is thinking… ${(elapsed / 1000).toFixed(1)}s`,
+    );
   } else if (canInteract({ game, mode: store.mode })) {
-    bits.push("Your move — drag a piece, or click origin then destination.");
+    bits.push(`${sideLabel(game)} to move — your move: drag a piece, or click origin then destination.`);
   } else if (game.mode === "jev-vs-jev") {
-    bits.push(game.autoplay ? "Jev vs Jev is running." : "Jev vs Jev is paused — use Step.");
+    const seatName = game.players && game.players[game.turn] ? asText(game.players[game.turn].name, "Jev") : "Jev";
+    bits.push(`${sideLabel(game)} to move — ${seatName}${game.autoplay ? " is up next." : " — paused, use Step."}`);
   } else {
-    bits.push("Waiting for Jev…");
+    bits.push(`${sideLabel(game)} to move — waiting for ${asText(game.players?.[game.turn]?.name, "Jev")}.`);
   }
   const fen = game && typeof game.fen === "string" ? game.fen : "";
   if (fen && store.mode === "live") bits.push(fen);
   dom.boardHint.textContent = bits.join("  ·  ");
+  // The colour of the side to move, so the board itself can show it.
+  dom.boardHint.dataset.turn = game && game.turn === "b" ? "b" : game ? "w" : "";
+  dom.boardHint.dataset.thinking = seatThinking(game) ? "true" : "false";
+}
+
+/** "White" / "Black" for whoever is to move. */
+function sideLabel(game) {
+  return game && game.turn === "b" ? "Black" : "White";
+}
+
+/** Is the side to move an AI seat that is currently thinking? */
+function seatThinking(game) {
+  if (!game || !game.ai || game.ai.thinking !== true) return false;
+  return !game.ai.side || game.ai.side === game.turn;
 }
 
 /* -------------------------------------------------------------- previews */
@@ -1032,6 +1063,8 @@ function startTicker() {
     const now = localNow();
     renderPlayers(now);
     statusLine.update(game, now);
+    // The hint carries the thinking clock, so it has to tick with everything else.
+    renderBoardHint(now);
   }, 200);
 }
 

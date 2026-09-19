@@ -62,7 +62,9 @@ export function createPlayerCard(root) {
   const meta = el("span", "player-meta", "");
   const badge = el("span", "player-badge", "");
   const clock = el("span", "player-clock", "");
-  root.append(name, meta, badge, clock);
+  const turn = el("span", "player-turn", "");
+  turn.hidden = true;
+  root.append(name, meta, badge, turn, clock);
   root.classList.add("player-card");
 
   return {
@@ -96,8 +98,17 @@ export function createPlayerCard(root) {
       }
       const thinking = extra.thinking === true;
       root.classList.toggle("is-thinking", thinking);
-      if (thinking) {
-        meta.textContent = `${meta.textContent} · thinking…`.replace(/^ · /, "");
+      root.dataset.thinking = thinking ? "true" : "false";
+      // The seat on the move says so, with its name and a live clock while it thinks: a watcher
+      // should never have to guess whose turn it is before the piece moves.
+      const onMove = extra.active === true || thinking;
+      turn.hidden = !onMove;
+      if (onMove) {
+        const seat = asText(p.name) || (p.kind === "jev" ? "Jev" : "you");
+        turn.textContent = thinking ? `${seat} thinking… ${formatSeconds(Number(extra.elapsedMs ?? 0))}s` : "to move";
+        turn.classList.toggle("is-thinking", thinking);
+      } else {
+        turn.textContent = "";
       }
       if (extra.material !== undefined) {
         root.dataset.material = String(extra.material);

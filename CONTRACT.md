@@ -269,4 +269,56 @@ no field was renamed or removed.
    immediately, a human opponent leaves `game.drawOffer` set for the UI to accept or decline.
 9. **Static responses carry `Cache-Control: no-store`** (development server: never serve a
    stale bundle) and unknown extension-less paths fall back to the app shell.
+10. **The strategy layer has its own blocks, distinct from Jev's.** `GameState` gained
+    `llm`, and `MoveRecord` gained `llm`; `PlayerState` gained `usesStrategist`.
+
+    ```jsonc
+    // GameState.llm
+    {
+      "configured": true,            // a reasoning-model client exists
+      "provider": "gemini", "model": "gemini-3.5-flash-lite",
+      "mock": false,                 // MockLlmClient in use
+      "reviews": 2,                  // plan reviews spent this game, both seats
+      "costUsd": 0.0012, "tokens": 2310,
+      "lastError": null,             // last strategist failure, else null
+      "plans": { "w": Plan | null, "b": Plan | null }
+    }
+
+    // Plan — the validated, clamped plan actually in force for one seat
+    {
+      "plan": "develop", "label": "Develop and centralise",
+      "targets": ["e4", "d4"],       // may be empty
+      "risk": "balanced", "reviewAfterPlies": 4,
+      "weightDeltas": { "activity": 0.1 },   // requested, not applied
+      "askJev": ["quality", "activity"],     // Jev dimensions to ask about
+      "opponentPlan": null, "commentary": "…"
+    }
+
+    // MoveRecord.llm — null for a human move and for a seat that does not plan
+    {
+      "enabled": true, "promptVersion": "plan-v1",
+      "plan": Plan,                  // the plan in force when this move was chosen
+      "applied": { "weights": { "activity": 0.1 }, "dims": ["quality","activity"], "dropped": [], "notes": ["…"] },
+      "reason": "phase-change",      // why the strategist was asked
+      "thinkingLevel": "medium", "model": "gemini-3.5-flash-lite", "api": "interactions",
+      "mock": false,
+      "usage": { "input": 1155, "output": 89, "thought": 113 },
+      "costUsd": 0.00057, "elapsedMs": 3300,
+      "reviewedAtPly": 1, "pliesSinceReview": 0,
+      "problems": [], "warnings": [], "notes": [], "error": null
+    }
+    ```
+
+    A seat that does not plan reports `usesStrategist: false`, and the UI renders the plan
+    block only for a seat that plans — a non-planning seat must never look as if a plan were
+    in force. `applied.weights` holds the *deltas* actually applied to the preset (after
+    clamping to ±0.25 and dropping unweighable dimensions into `dropped`), while
+    `MoveRecord.weights` is the final, plan-adjusted mix — so the sliders a user sees match
+    the judgement that was rendered.
+11. **Whose move it is must be legible before the piece moves** (extends UI requirement 11).
+    Three indicators, all derived from `GameState.turn` rather than a local guess: the board
+    hint leads with "White/Black to move" and carries `data-turn`; the card of the side to
+    move gets `.is-active`; and that card's `.player-turn` chip names the seat — "to move",
+    or "<name> thinking… N.Ns" while `game.ai.thinking` is true for it, timed from the
+    server's `ai.startedAt` so a reload or a second tab shows the same number.
 

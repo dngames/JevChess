@@ -195,6 +195,12 @@ Board on the left, Jev's reasoning on the right.
   draw offers (a Jev opponent answers a draw offer itself, with the probability it used).
 - Clocks with increment, interpolated between server updates; pause/step for Jev vs Jev;
   an "AI thinking…" indicator.
+- **Whose move it is, before anything moves.** Three indicators, all driven by the server's
+  `turn`, never by a local guess: the hint under the board leads with "White to move — …",
+  the card of the side to move is outlined in its colour, and that card carries a chip
+  reading "to move" — or "Jev thinking… 3.4s" while that seat is choosing, timed from the
+  server's `ai.startedAt` so a reload or a second tab shows the same number. In a Jev-vs-Jev
+  game this is the only way to tell which engine is on the clock at a glance.
 
 ---
 

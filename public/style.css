@@ -879,6 +879,75 @@ textarea {
   color: var(--warn);
 }
 
+/* ------------------------------------------------- whose move is it, anyway */
+
+.player-card {
+  position: relative;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.player-card.is-active {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, rgba(168, 192, 122, 0.14), transparent 60%);
+  box-shadow: 0 0 0 1px rgba(168, 192, 122, 0.35), 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+.player-card.is-active::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.player-card[data-color="b"].is-active {
+  border-color: var(--info);
+  background: linear-gradient(90deg, rgba(143, 182, 214, 0.14), transparent 60%);
+  box-shadow: 0 0 0 1px rgba(143, 182, 214, 0.35), 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+.player-card[data-color="b"].is-active::before {
+  background: var(--info);
+}
+.player-turn {
+  font-size: 0.72rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent-strong);
+  white-space: nowrap;
+}
+.player-card[data-color="b"] .player-turn {
+  border-color: var(--info);
+  color: var(--info);
+}
+.player-turn.is-thinking {
+  animation: turn-pulse 1.4s ease-in-out infinite;
+}
+@keyframes turn-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* The line under the board leads with the side to move and colours it accordingly. */
+.board-hint {
+  font-variant-numeric: tabular-nums;
+}
+.board-hint[data-turn="w"]::before,
+.board-hint[data-turn="b"]::before {
+  content: "●";
+  margin-right: 6px;
+  font-size: 0.8em;
+}
+.board-hint[data-turn="w"]::before {
+  color: var(--square-light);
+}
+.board-hint[data-turn="b"]::before {
+  color: var(--info);
+}
+.board-hint[data-thinking="true"] {
+  color: var(--accent-strong);
+}
+
 .badge {
   font-size: 0.66rem;
   text-transform: uppercase;
