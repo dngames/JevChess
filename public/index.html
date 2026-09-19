@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>JevChess — chess played by Jev</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#board-host">Skip to the board</a>
+
+    <div class="app">
+      <header class="topbar" role="banner">
+        <div class="topbar-row topbar-players">
+          <div class="player-card" id="player-top" data-color="b"></div>
+          <div class="topbar-center">
+            <h1 class="app-title">JevChess</h1>
+            <div class="status-line" id="status-line"></div>
+          </div>
+          <div class="player-card" id="player-bottom" data-color="w"></div>
+        </div>
+
+        <div class="topbar-row topbar-controls" role="group" aria-label="Game controls">
+          <button type="button" id="btn-new" class="btn btn-primary" title="New game (n)">New game</button>
+          <button type="button" id="btn-undo" class="btn" title="Undo (u)">Undo</button>
+          <button type="button" id="btn-flip" class="btn" title="Flip board (f)">Flip</button>
+          <button type="button" id="btn-resign" class="btn">Resign</button>
+          <button type="button" id="btn-draw" class="btn" hidden>Offer draw</button>
+          <button type="button" id="btn-draw-accept" class="btn" hidden>Accept draw</button>
+          <button type="button" id="btn-draw-decline" class="btn" hidden>Decline</button>
+          <button type="button" id="btn-pause" class="btn" hidden>Pause</button>
+          <button type="button" id="btn-step" class="btn" hidden>Step</button>
+          <button type="button" id="btn-arrows" class="btn" aria-pressed="false">Threat arrows</button>
+          <span class="control-sep" aria-hidden="true"></span>
+          <button type="button" id="btn-copy-fen" class="btn btn-quiet">Copy FEN</button>
+          <button type="button" id="btn-load-fen" class="btn btn-quiet">Load FEN</button>
+          <button type="button" id="btn-copy-pgn" class="btn btn-quiet">Copy PGN</button>
+          <button type="button" id="btn-download-pgn" class="btn btn-quiet">Download PGN</button>
+        </div>
+      </header>
+
+      <div class="banner" id="jev-banner" hidden></div>
+
+      <main class="layout">
+        <section class="column column-board" aria-label="Board">
+          <div class="board-row">
+            <div class="eval-bar" id="eval-bar"></div>
+            <div class="board-shell" id="board-host"></div>
+          </div>
+          <p class="board-hint" id="board-hint"></p>
+        </section>
+
+        <aside class="column column-side" aria-label="Game details">
+          <section class="panel" id="jev-panel" aria-label="Jev's judgment"></section>
+          <section class="panel" id="move-list" aria-label="Move list"></section>
+        </aside>
+      </main>
+
+      <footer class="app-footer">
+        <span class="footer-note">
+          Jev decides the moves; the rules, clocks and legality live on the server. The API key
+          never reaches this page.
+        </span>
+        <span class="connection-note" id="connection-note" hidden>reconnecting…</span>
+      </footer>
+    </div>
+
+    <div class="toast-stack" id="toast-stack"></div>
+
+    <!-- New game dialog -->
+    <dialog class="dialog" id="new-game-dialog" aria-labelledby="new-game-title">
+      <form method="dialog" class="dialog-form" id="new-game-form">
+        <header class="dialog-head">
+          <h2 id="new-game-title">New game</h2>
+          <button type="button" class="btn btn-quiet dialog-close" id="dialog-close" aria-label="Close">×</button>
+        </header>
+
+        <fieldset class="field">
+          <legend>Mode</legend>
+          <div class="choice-row" id="mode-choices" role="radiogroup" aria-label="Game mode">
+            <label class="choice">
+              <input type="radio" name="mode" value="human-vs-jev" checked />
+              <span class="choice-body">
+                <span class="choice-title">Human vs Jev</span>
+                <span class="choice-help">You play one colour, Jev plays the other.</span>
+              </span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="mode" value="jev-vs-jev" />
+              <span class="choice-body">
+                <span class="choice-title">Jev vs Jev</span>
+                <span class="choice-help">Two strategies play each other; pause and step freely.</span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="field" id="color-field">
+          <legend>Your colour</legend>
+          <div class="choice-row choice-row-inline" id="color-choices" role="radiogroup" aria-label="Your colour">
+            <label class="choice choice-compact">
+              <input type="radio" name="humanColor" value="w" checked />
+              <span class="choice-body"><span class="choice-title">White</span></span>
+            </label>
+            <label class="choice choice-compact">
+              <input type="radio" name="humanColor" value="b" />
+              <span class="choice-body"><span class="choice-title">Black</span></span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="field">
+          <legend>Time control</legend>
+          <div class="field-row">
+            <label class="control-label" for="time-control">Clock</label>
+            <select id="time-control" name="timeControl" class="input">
+              <option value="none">No clock</option>
+              <option value="1+0">1 + 0 bullet</option>
+              <option value="3+2" selected>3 + 2 blitz</option>
+              <option value="5+0">5 + 0 blitz</option>
+              <option value="10+0">10 + 0 rapid</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+          <div class="field-row" id="custom-clock" hidden>
+            <label class="control-label" for="time-initial">Minutes / increment&nbsp;(s)</label>
+            <span class="inline-inputs">
+              <input type="number" id="time-initial" class="input input-num" min="0.1" max="180" step="0.5" value="5" />
+              <input type="number" id="time-increment" class="input input-num" min="0" max="60" step="1" value="0" />
+            </span>
+          </div>
+        </fieldset>
+
+        <fieldset class="field">
+          <legend>Start position</legend>
+          <div class="field-row field-row-stack">
+            <label class="control-label" for="fen-input">FEN (optional)</label>
+            <textarea id="fen-input" class="input input-fen" rows="2" spellcheck="false"
+              placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"></textarea>
+            <p class="field-help" id="fen-help">
+              Leave empty for the standard start. The server validates the FEN.
+            </p>
+          </div>
+        </fieldset>
+
+        <fieldset class="field">
+          <legend>Players</legend>
+          <p class="field-help" id="strategies-status">Loading strategies…</p>
+          <div class="players-grid" id="players-grid"></div>
+        </fieldset>
+
+        <p class="dialog-error" id="dialog-error" hidden></p>
+
+        <footer class="dialog-foot">
+          <button type="button" class="btn btn-quiet" id="dialog-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="dialog-start">Start game</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Template for one player's strategy card + weight sliders -->
+    <template id="player-config-template">
+      <section class="player-config" data-side="w">
+        <header class="player-config-head">
+          <h3 class="player-config-title" data-role="title">White</h3>
+          <span class="player-config-kind" data-role="kind">Jev</span>
+        </header>
+        <div class="field-row">
+          <label class="control-label" data-role="strategy-label">Strategy</label>
+          <select class="input" data-role="strategy"></select>
+        </div>
+        <p class="field-help" data-role="description"></p>
+        <p class="field-help" data-role="preset-meta"></p>
+        <div class="weights" data-role="weights"></div>
+      </section>
+    </template>
+
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "jev-chess",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Chess played by Jev (TypeSafe System One): a zero-dependency web board where code owns the rules and Jev owns the judgement.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node tests/perft.test.mjs && node tests/ui-logic.test.mjs && node tests/pipelines.test.mjs",
+    "test:engine": "node tests/perft.test.mjs",
+    "test:ui": "node tests/ui-logic.test.mjs",
+    "test:strategy": "node tests/pipelines.test.mjs",
+    "smoke": "node tools/smoke.mjs",
+    "bench": "node tests/search-bench.mjs",
+    "experiment": "node tools/experiment.mjs"
+  }
+}
