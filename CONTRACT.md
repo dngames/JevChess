@@ -270,7 +270,9 @@ no field was renamed or removed.
 9. **Static responses carry `Cache-Control: no-store`** (development server: never serve a
    stale bundle) and unknown extension-less paths fall back to the app shell.
 10. **The strategy layer has its own blocks, distinct from Jev's.** `GameState` gained
-    `llm`, and `MoveRecord` gained `llm`; `PlayerState` gained `usesStrategist`.
+    `llm`, `JevMove` gained `llm`, and `PlayerState` gained `usesStrategist`. Watch the owner:
+    the per-move plan block hangs off the **Jev record** (`MoveRecord.jev.llm`), not off
+    `MoveRecord` itself — `MoveRecord` gained no fields.
 
     ```jsonc
     // GameState.llm
@@ -294,7 +296,7 @@ no field was renamed or removed.
       "opponentPlan": null, "commentary": "…"
     }
 
-    // MoveRecord.llm — null for a human move and for a seat that does not plan
+    // JevMove.llm — null for a human move and for a seat that does not plan
     {
       "enabled": true, "promptVersion": "plan-v1",
       "plan": Plan,                  // the plan in force when this move was chosen
@@ -302,7 +304,7 @@ no field was renamed or removed.
       "reason": "phase-change",      // why the strategist was asked
       "thinkingLevel": "medium", "model": "gemini-3.5-flash-lite", "api": "interactions",
       "mock": false,
-      "usage": { "input": 1155, "output": 89, "thought": 113 },
+      "usage": { "inputTokens": 1155, "outputTokens": 89, "thoughtTokens": 113, "totalTokens": 1357 },
       "costUsd": 0.00057, "elapsedMs": 3300,
       "reviewedAtPly": 1, "pliesSinceReview": 0,
       "problems": [], "warnings": [], "notes": [], "error": null

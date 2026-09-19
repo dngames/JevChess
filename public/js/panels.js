@@ -25,6 +25,7 @@ import {
   colorName,
   statusText,
   asText,
+  strategyTally,
 } from "./logic.js";
 
 /* ------------------------------------------------------------------ helpers */
@@ -285,6 +286,8 @@ export function createJevPanel(root) {
           planned: planInForce(game),
           meta: null,
           gameLlm: game ? game.llm : null,
+          game,
+          color: game ? game.turn : null,
           seatPlans: seatUsesStrategist(game, game ? game.turn : null),
         });
         return;
@@ -304,6 +307,8 @@ export function createJevPanel(root) {
         planned: (jev.llm && jev.llm.plan) || planInForce(game),
         meta: jev.llm || null,
         gameLlm: game ? game.llm : null,
+        game,
+        color: (record && record.color) || (game ? game.turn : null),
         seatPlans: seatUsesStrategist(game, (record && record.color) || (game ? game.turn : null)),
       });
 
@@ -685,7 +690,18 @@ function seatUsesStrategist(game, color) {
  *  - a seat that wants to plan but has no key (said plainly, with the command);
  *  - a strategist that failed (the reason, not silence).
  */
-function renderPlan(container, { planned, meta, gameLlm, seatPlans = true } = {}) {
+/**
+ * What the plan has actually done to this seat's moves so far, counted from the move records.
+ *
+ * This exists because "the plan is in force" is not the same as "the plan changed anything": a
+ * plan can be applied and every move still be the search's own first choice. These are the
+ * numbers that separate the two, and they are all code-computed from the records — no model
+ * grades itself. The centipawn figure is against *this game's own* search depth, so it says
+ * what the plan cost by the measure the move was actually chosen with, not ground truth.
+ * Implementation lives in logic.js so it can be unit-tested without a DOM.
+ */
+
+function renderPlan(container, { planned, meta, gameLlm, game = null, color = null, seatPlans = true } = {}) {
   if (!container) return;
   clear(container);
   const llm = gameLlm && typeof gameLlm === "object" ? gameLlm : null;
@@ -735,6 +751,22 @@ function renderPlan(container, { planned, meta, gameLlm, seatPlans = true } = {}
   for (const line of lines) container.appendChild(el("p", "jev-plan-line", line));
 
   if (plan.commentary) container.appendChild(el("p", "jev-plan-commentary", asText(plan.commentary)));
+
+  // "In force" is not the same as "had an effect": count it.
+  const tally = game ? strategyTally(game, color) : null;
+  if (tally) {
+    const parts = [`${tally.planned} of ${tally.moves} move${tally.moves === 1 ? "" : "s"} played under a plan`];
+    if (tally.deviated > 0) {
+      parts.push(`${tally.deviated} differed from the search's own first choice`);
+      if (tally.meanCp !== null) {
+        parts.push(`${tally.meanCp >= 0 ? "+" : ""}${tally.meanCp.toFixed(0)} cp on average${tally.depth ? ` at depth ${tally.depth}` : ""}`);
+      }
+    } else {
+      parts.push("none differed from the search's own first choice yet");
+    }
+    parts.push(`${tally.reviews} review${tally.reviews === 1 ? "" : "s"} so far`);
+    container.appendChild(el("p", "jev-plan-tally", parts.join(" · ")));
+  }
 
   const footerBits = [];
   if (meta && meta.thinkingLevel) footerBits.push(`thinking ${asText(meta.thinkingLevel)}`);

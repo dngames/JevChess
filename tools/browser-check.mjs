@@ -418,6 +418,7 @@ try {
       commentary: (box.querySelector('.jev-plan-commentary')?.textContent ?? '').trim(),
       meta: (box.querySelector('.jev-plan-meta')?.textContent ?? '').trim(),
       badges: Array.from(box.querySelectorAll('.badge')).map((b) => b.textContent.trim()),
+      tally: (box.querySelector('.jev-plan-tally')?.textContent ?? '').trim(),
       text: box.textContent.replace(/\\s+/g, ' ').trim().slice(0, 300),
     };
   })()`);
@@ -435,6 +436,16 @@ try {
       Boolean(planBlock.kind) && planBlock.kind !== "No plan in force" || explained,
       `the plan block either names a plan or explains why there is none ("${planBlock.kind}")`,
     );
+    // "A plan is in force" must be visibly separate from "the plan changed something".
+    if (planBlock.tally) {
+      console.log(`  info  plan effect: ${planBlock.tally}`);
+      ok(
+        /moves? played under a plan/.test(planBlock.tally) && /review/.test(planBlock.tally),
+        `the plan block counts what the plan has actually done ("${planBlock.tally}")`,
+      );
+    } else {
+      ok(explained, "no effect line is shown, and the block explains why there is no plan in force");
+    }
   }
   await screenshot("03-jev-vs-jev.png");
 

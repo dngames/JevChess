@@ -778,6 +778,62 @@ export function latestJevRecord(history) {
   return null;
 }
 
+/**
+ * What a plan has actually done to one seat's moves so far, counted from the move records.
+ *
+ * "The plan is in force" is not the same as "the plan changed anything": a plan can be applied
+ * and every move still be the search's own first choice. These numbers separate the two, and
+ * they are all code-computed from the records — no model grades itself.
+ *
+ * The plan marker sits on the Jev record (`MoveRecord.jev.llm`), so "a move played under a
+ * plan" is exactly a Jev move whose record carries one.
+ *
+ * `meanCp` is measured against *this game's own* search depth, so it reports what the deviation
+ * cost by the measure the move was actually chosen with, not ground truth. It is null until a
+ * deviating move has both centipawn values.
+ *
+ * Returns null when the seat has played no move under a plan yet, so callers can omit the line
+ * entirely rather than print zeroes.
+ */
+export function strategyTally(game, color) {
+  const history = game && Array.isArray(game.history) ? game.history : [];
+  const mine = history.filter((record) => record && record.color === color && record.jev);
+  const planned = mine.filter((record) => record.jev.llm);
+  if (planned.length === 0) return null;
+  let deviated = 0;
+  let cpSum = 0;
+  let cpCount = 0;
+  const reviews = new Set();
+  let depth = null;
+  for (const record of planned) {
+    const meta = record.jev.llm || {};
+    if (Number.isFinite(Number(meta.reviewedAtPly))) reviews.add(Number(meta.reviewedAtPly));
+    const search = record.jev && record.jev.search ? record.jev.search : {};
+    if (Number.isFinite(Number(search.depth))) depth = Number(search.depth);
+    const bestSan = asText(search.bestSan) || null;
+    const bestCp = Number(search.bestCp);
+    if (!bestSan || !record.san || bestSan === record.san) continue;
+    deviated += 1;
+    const candidates = Array.isArray(record.jev.candidates) ? record.jev.candidates : [];
+    const chosen =
+      candidates.find((candidate) => candidate && candidate.chosen === true) ??
+      candidates.find((candidate) => candidate && candidate.san === record.san);
+    const chosenCp = Number(chosen && chosen.searchCp);
+    if (Number.isFinite(chosenCp) && Number.isFinite(bestCp)) {
+      cpSum += chosenCp - bestCp;
+      cpCount += 1;
+    }
+  }
+  return {
+    planned: planned.length,
+    moves: mine.length,
+    deviated,
+    meanCp: cpCount > 0 ? cpSum / cpCount : null,
+    reviews: reviews.size,
+    depth,
+  };
+}
+
 /** A 0..1 number clamped into range, or null when the input is not a number. */
 function toUnit(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;

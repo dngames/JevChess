@@ -54,6 +54,7 @@ import {
   squareToXY,
   startingBoard,
   statusText,
+  strategyTally,
   turnFromFen,
   weightEntries,
   xyToSquare,
@@ -841,6 +842,101 @@ test("pgnFromGame: total on junk, and still valid PGN", () => {
   assert.ok(fromEmpty.includes('[Result "*"]'));
   const fromJunk = pgnFromGame({ status: "nope", history: "nope", players: 5 });
   assert.ok(fromJunk.includes('[Result "*"]'));
+});
+
+/* ------------------------------------------------- the plan's measured effect */
+
+/**
+ * A Jev move record, with the fields the tally reads and nothing else. The plan marker lives
+ * inside `jev` (on the JevMove), which is where the server actually puts it — a top-level
+ * `MoveRecord.llm` does not exist.
+ */
+function tallyRecord({ color = "w", san = "Nf3", bestSan = "Nf3", bestCp = 20, chosenCp = 20, depth = 4, planned = true, reviewedAtPly = 1 } = {}) {
+  return {
+    color,
+    san,
+    jev: {
+      llm: planned ? { reviewedAtPly } : null,
+      search: { bestSan, bestCp, depth },
+      candidates: [
+        { san: bestSan, searchCp: bestCp, chosen: bestSan === san },
+        { san, searchCp: chosenCp, chosen: bestSan !== san },
+      ],
+    },
+  };
+}
+
+test("strategyTally: a seat with no planned move yet gets no line at all", () => {
+  assert.equal(strategyTally(null, "w"), null);
+  assert.equal(strategyTally({ history: [] }, "w"), null);
+  // Human moves carry jev: null; unplanned Jev moves carry jev.llm: null.
+  assert.equal(strategyTally({ history: [{ color: "w", san: "e4", jev: null }] }, "w"), null);
+  assert.equal(strategyTally({ history: [tallyRecord({ planned: false })] }, "w"), null);
+});
+
+test("strategyTally: counts only the requested colour, and only moves carrying a plan", () => {
+  const game = {
+    history: [tallyRecord({ color: "w" }), tallyRecord({ color: "b" }), tallyRecord({ color: "w", planned: false })],
+  };
+  const tally = strategyTally(game, "w");
+  assert.equal(tally.planned, 1, "one white move ran under a plan");
+  assert.equal(tally.moves, 2, "two white Jev moves were played in total");
+});
+
+test("strategyTally: a plan that never changed a move reports zero deviations, not a fake cost", () => {
+  // The whole point: a plan in force that always agrees with the search has had no effect, and
+  // the line must say so rather than imply impact.
+  const game = { history: [tallyRecord({ san: "Nf3", bestSan: "Nf3" }), tallyRecord({ san: "d4", bestSan: "d4" })] };
+  const tally = strategyTally(game, "w");
+  assert.equal(tally.planned, 2);
+  assert.equal(tally.deviated, 0);
+  assert.equal(tally.meanCp, null);
+});
+
+test("strategyTally: a deviation is counted and priced against the search's own top move", () => {
+  const game = {
+    history: [
+      tallyRecord({ san: "Nf3", bestSan: "e4", bestCp: 30, chosenCp: -10 }), // 40 cp worse
+      tallyRecord({ san: "d4", bestSan: "d4" }), // agreed, contributes no cost
+      tallyRecord({ san: "Nc3", bestSan: "c4", bestCp: 20, chosenCp: 0 }), // 20 cp worse
+    ],
+  };
+  const tally = strategyTally(game, "w");
+  assert.equal(tally.planned, 3);
+  assert.equal(tally.deviated, 2);
+  assert.equal(tally.meanCp, -30, "mean of -40 and -20 cp");
+  assert.equal(tally.depth, 4);
+});
+
+test("strategyTally: a deviation with no usable centipawns is counted but not priced", () => {
+  const record = tallyRecord({ san: "Nf3", bestSan: "e4" });
+  record.jev.candidates = [];
+  record.jev.search.bestCp = null;
+  const tally = strategyTally({ history: [record] }, "w");
+  assert.equal(tally.deviated, 1);
+  assert.equal(tally.meanCp, null, "never invent a cost from missing numbers");
+});
+
+test("strategyTally: reviews are counted once per review ply, not once per move", () => {
+  // A plan held for several plies is one review, not several — otherwise the panel would
+  // overstate what the strategist cost.
+  const game = {
+    history: [tallyRecord({ reviewedAtPly: 1 }), tallyRecord({ reviewedAtPly: 1 }), tallyRecord({ reviewedAtPly: 5 })],
+  };
+  assert.equal(strategyTally(game, "w").reviews, 2);
+});
+
+test("strategyTally: survives junk records without throwing", () => {
+  const game = {
+    history: [null, {}, { color: "w", san: "e4", jev: {} }, { color: "w", san: "e4", jev: { llm: {} } }, "nope"],
+  };
+  const tally = strategyTally(game, "w");
+  assert.ok(tally, "the record carrying a plan still yields a line");
+  assert.equal(tally.planned, 1);
+  assert.equal(tally.deviated, 0);
+  assert.equal(tally.meanCp, null);
+  assert.equal(strategyTally({ history: "nope" }, "w"), null);
+  assert.equal(strategyTally("nope", "w"), null);
 });
 
 /* ------------------------------------------------------------------ misc */
