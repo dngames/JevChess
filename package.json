@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node tests/perft.test.mjs && node tests/ui-logic.test.mjs && node tests/pipelines.test.mjs && node tests/jev-payload.test.mjs",
+    "test": "node tests/repo-hygiene.test.mjs && node tests/perft.test.mjs && node tests/ui-logic.test.mjs && node tests/pipelines.test.mjs && node tests/jev-payload.test.mjs",
+    "test:hygiene": "node tests/repo-hygiene.test.mjs",
     "test:engine": "node tests/perft.test.mjs",
     "test:ui": "node tests/ui-logic.test.mjs",
     "test:strategy": "node tests/pipelines.test.mjs",
