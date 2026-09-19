@@ -129,13 +129,41 @@ async function shortlistComposite({ chess, strategy, jevClient, lastMovesSan, em
     return { ...candidate, values, composite };
   });
 
-  for (const candidate of scored) candidate.noisy = candidate.composite + strategy.temperature * (Math.random() - 0.5);
+  // Did Jev contribute anything usable? If not, the search's own ranking must decide, with no
+  // exploration: the search scores of neighbouring moves differ by a few thousandths, so
+  // temperature-scaled noise (0.1 in the default preset) is far larger than the signal and
+  // used to promote the second or third best move at random while the panel claimed "the
+  // search's own ranking decided this move" — which simply was not true.
+  const hasJevSignal =
+    Object.values(dimsByCandidate).some((dims) => Object.keys(dims).length > 0) ||
+    candidates.some((candidate) => choiceScores[candidate.id] !== undefined);
 
-  const ordered = [...scored].sort((a, b) => b.noisy - a.noisy || a.rank - b.rank);
+  const byComposite = (a, b) => b.composite - a.composite || a.rank - b.rank;
+  const bestComposite = scored.reduce((best, candidate) => Math.max(best, candidate.composite), 0);
+  const band = hasJevSignal ? Math.max(0, strategy.temperature ?? 0) : 0;
+  const nearBest = band > 0 ? scored.filter((candidate) => candidate.composite >= bestComposite - band) : [];
+
+  let ordered;
+  let exploredFrom = null;
+  if (nearBest.length > 1) {
+    // Temperature is an indifference band: within it the candidates are close enough that
+    // variety is worth having, so one is picked at random and the rest follow by composite.
+    const picked = nearBest[Math.floor(Math.random() * nearBest.length)];
+    exploredFrom = nearBest.length;
+    ordered = [picked, ...scored.filter((candidate) => candidate !== picked).sort(byComposite)];
+  } else {
+    ordered = [...scored].sort(byComposite);
+  }
   const chosen = ordered[0] ?? candidates[0];
 
   const notes = [];
   if (!response) notes.push("Jev was unavailable, so the search's own ranking decided this move.");
+  if (exploredFrom !== null && chosen.composite < bestComposite) {
+    notes.push(
+      `Chose between ${exploredFrom} candidates whose composite scores were within the indifference band ` +
+        `(${strategy.temperature}); the highest-scoring was ${scored.slice().sort(byComposite)[0].san}.`,
+    );
+  }
   if (chosen.rank !== 1) {
     notes.push(
       `Jev's judgement changed the move: the search preferred ${shortlist[0].san}, the composite chose ${chosen.san} ` +
@@ -150,8 +178,12 @@ async function shortlistComposite({ chess, strategy, jevClient, lastMovesSan, em
   if (choiceScores.invalidChoice) notes.push(`Jev nominated "${choiceScores.invalidChoice}", which is not one of the candidates; its probabilities were used instead.`);
   const missing = candidates.length * strategy.dims.length - index.filter((entry) => dimsByCandidate[entry.candidateId]?.[entry.dim] !== undefined).length;
   if (response && missing > 0) notes.push(`${missing} of Jev's dimension answers were missing or unreadable and were ignored.`);
-  if (!response || index.every((entry) => dimsByCandidate[entry.candidateId]?.[entry.dim] === undefined)) {
-    if (response) notes.push("Jev returned no usable dimension scores for this position; the search score decided.");
+  if (!hasJevSignal) {
+    notes.push(
+      response
+        ? "Jev returned no usable scores for this position, so the search's ranking decided and nothing was left to chance."
+        : "Nothing was left to chance: the search's ranking decided.",
+    );
   }
   if (assessment?.labels?.standing) {
     notes.push(`Jev reads the position as: ${assessment.labels.standing}${assessment.labels.plan ? `, and would ${assessment.labels.plan}` : ""}.`);

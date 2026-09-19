@@ -124,7 +124,18 @@ function makeJev(opts = {}) {
   return client;
 }
 
-const STRATEGY = (id, weights) => resolveStrategy({ strategyId: id, weights });
+/**
+ * Resolve a strategy for testing with a deliberately generous search budget. The search
+ * deepens iteratively and stops at its budget, so a tight budget makes the *ordering* of
+ * near-equal moves depend on machine load — which made several assertions in this file pass
+ * or fail by luck. With the budget out of the way, depth 3 always completes and the results
+ * are reproducible.
+ */
+const STRATEGY = (id, weights) => {
+  const strategy = resolveStrategy({ strategyId: id, weights });
+  strategy.timeBudgetMs = 12_000;
+  return strategy;
+};
 
 function playablePosition() {
   return new Chess("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
@@ -347,22 +358,30 @@ test("a candidate Jev loves wins even when the search ranks it lower", async () 
 
 test("the search still wins when Jev has nothing to say about it", async () => {
   const chess = playablePosition();
-  const analysis = analyzeRoot(chess, { depth: 2, quiescence: 1, timeBudgetMs: 400 });
   const jev = makeJev({ dumb: true });
   const { move, record } = await selectMove({ chess, strategy: STRATEGY("balanced"), jevClient: jev, lastMovesSan: [] });
-  assert.equal(move.san, analysis.moves[0].san);
+  assert.equal(record.searchRankOfChosen, 1, "with no answers to use, the search's own top move must play");
+  assert.equal(record.candidates[0].san, move.san);
   assert.ok(record.notes.some((note) => /no usable|search score decided/.test(note)));
 });
 
 test("an unreachable Jev degrades to the search instead of failing the game", async () => {
   const chess = playablePosition();
-  const analysis = analyzeRoot(chess, { depth: 2, quiescence: 1, timeBudgetMs: 400 });
+  const legal = new Set(chess.moves().map((move) => move.san));
   const jev = makeJev({ fail: true });
   const { move, record } = await selectMove({ chess, strategy: STRATEGY("balanced"), jevClient: jev, lastMovesSan: [] });
-  assert.equal(move.san, analysis.moves[0].san);
+
+  // The promise is "the pipeline's own search decides", not "the move matches a search I run
+  // here with different settings" - the two orderings legitimately differ, and with a
+  // time-budgeted search they can flip between runs (this assertion was flaky until it was
+  // rewritten to check the invariant instead of a coincidence).
+  assert.ok(legal.has(move.san), `${move.san} should be legal`);
+  assert.equal(record.searchRankOfChosen, 1, "the fallback must be the pipeline's own top-ranked move");
+  assert.equal(record.chosenRank, 1);
   assert.ok(record.errors.length > 0, "the failure is recorded");
   assert.ok(record.notes.some((note) => /unavailable/.test(note)));
   assert.equal(record.requests, 0);
+  assert.equal(record.candidates[0].san, move.san, "and the record's top candidate is that move");
 });
 
 test("with one dimension the composite uses the search and that dimension only", async () => {
@@ -494,10 +513,10 @@ test("an invented move falls back to Jev's next-best legal option", async () => 
 
 test("no usable answer at all defers to the search and says so", async () => {
   const chess = playablePosition();
-  const analysis = analyzeRoot(chess, { depth: 2, quiescence: 1, timeBudgetMs: 400 });
   const jev = makeJev({ dumb: true });
   const { move, record } = await selectMove({ chess, strategy: STRATEGY("pure-jev"), jevClient: jev, lastMovesSan: [] });
-  assert.equal(move.san, analysis.moves[0].san);
+  assert.equal(record.searchRankOfChosen, 1, "the fallback is the pipeline's own top-ranked move");
+  assert.equal(record.candidates[0].san, move.san);
   assert.ok(record.notes.some((note) => /no usable answer/.test(note)));
 });
 
@@ -562,7 +581,7 @@ test("the second nomination's option list really excludes the vetoed move", asyn
 
 test("endless vetoes stop at the limit and defer to the search", async () => {
   const chess = playablePosition();
-  const analysis = analyzeRoot(chess, { depth: 2, quiescence: 1, timeBudgetMs: 400 });
+  const legal = new Set(chess.moves().map((move) => move.san));
   const jev = makeJev({
     choice: (keys) => keys[0],
     noul: ({ id }) => (id === "audit_regret" ? 0.99 : 0),
@@ -571,7 +590,7 @@ test("endless vetoes stop at the limit and defer to the search", async () => {
   assert.equal(record.vetoed.length, 4, "maxVetoes + 1 nominations were rejected");
   assert.equal(record.requests, 8);
   assert.ok(record.searchRankOfChosen >= 1);
-  assert.ok(analysis.moves.some((entry) => entry.san === move.san), "a legal move still played");
+  assert.ok(legal.has(move.san), "a legal move still played");
   assert.ok(record.notes.some((note) => /Veto limit reached|search's top move/.test(note)));
 });
 

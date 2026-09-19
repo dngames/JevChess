@@ -32,9 +32,17 @@ On Windows there is a better option than a plaintext file — **Windows secure s
 which encrypts the key with DPAPI for your user only, outside the repository:
 
 ```
-npm run key:set        # hidden prompt; stores %LOCALAPPDATA%\JevChess\jev-key.dpapi
+npm run key:set        # hidden prompt: paste the key, press Enter (nothing is echoed)
 npm run key:status     # confirms a key is stored, never prints the key itself
 npm run key:clear
+```
+
+If the terminal is not interactive — a script, a CI job, a sandbox — there are two other ways
+in that use the same tested storage path:
+
+```
+npm run key:set -- --from-env TYPESAFE_API_KEY     # take it from an environment variable
+Get-Content key.txt | npm run key:set              # or pipe it in
 ```
 
 Decryptable only by the same Windows user on the same machine, so a copy of that blob is
@@ -156,8 +164,10 @@ Board on the left, Jev's reasoning on the right.
 
 ## Tests
 
-`npm test` runs the four fast suites (~70 s). The two slow ones are separate on purpose:
-`test:soak` plays whole games and takes about two minutes, and `check:browser` needs Chrome.
+`npm test` runs the four fast suites (~70 s). Three are separate on purpose: `test:soak` plays
+whole games and takes about two minutes, `check:browser` needs Chrome, and `test:key` needs
+PowerShell (its prompt half runs anywhere, and the storage half reports SKIP where child
+processes cannot be spawned).
 
 ```
 npm test              # everything below in one run
@@ -166,6 +176,7 @@ npm run test:ui       # 59 checks: board geometry, clocks, history preview, PGN
 npm run test:strategy # 45 checks: pipelines, fallbacks, veto loop, composite, game loop
 npm run test:payload  # 23 checks: the HTTP request and every payload, against the API schema
 npm run test:soak     # 9 checks, ~2 min: whole games played to a finish and replayed
+npm run test:key      # 16 checks: the key prompt and the Windows secure-storage round trip
 npm run bench         # how long the code half of a move takes
 npm run smoke         # drives a running server over HTTP + SSE (62 checks)
 npm run check:browser # renders the app in headless Chrome and plays real moves
@@ -190,6 +201,13 @@ What each protects:
   422 does not. This is what makes the first call with a real key likely to work first time.
 - **Smoke** — the real wire format: REST snapshots, a human move, an AI reply arriving on
   its own, SSE frames, error codes, undo, strategy switching, draw and resignation.
+- **Key storage** — the hidden prompt (a pasted key arriving as one chunk, backspace, Ctrl+C,
+  a non-terminal stream being refused rather than hanging) and the DPAPI round trip
+  store → read → clear, plus the CLI's masked `get`, `status` and a failed `set` leaving no
+  blob behind. It copies an existing key aside and restores it, so it is safe to run with a
+  real key stored. This suite exists because the first `key:set` shipped broken — it asked
+  PowerShell's `Read-Host` while spawning PowerShell `-NonInteractive` — and the lesson is
+  that the documented command needs a test, not just the function underneath it.
 - **Soak** — whole games, which is where the long tail lives. Against engine/mock seats with a
   deliberately tiny search budget (the point is the loop, not the strength), it plays games to
   a real result and asserts that every game **replays move for move** from its own record. It

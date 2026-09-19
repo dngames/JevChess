@@ -119,11 +119,17 @@ export async function readStoredKey(env = process.env) {
 
 /**
  * Encrypt and store a key.
- * @param {{plaintext?: string, interactive?: boolean}} options
- *   `plaintext` is passed to PowerShell through the child's environment, never as an
- *   argument, so it does not show up in the process list.
+ *
+ * The plaintext is handed to PowerShell through the child's environment, never as an
+ * argument, so it does not appear in the process list. The prompting itself lives in the
+ * caller (tools/win-key.mjs) and is done in Node: this function previously offered an
+ * `interactive` mode that asked PowerShell's `Read-Host` while spawning it with
+ * `-NonInteractive`, which cannot work — that is the bug the first user of `npm run key:set`
+ * hit, and the reason this is now a single, exercised path.
+ *
+ * @param {{plaintext: string}} options
  */
-export async function storeKey({ plaintext = null, interactive = false } = {}) {
+export async function storeKey({ plaintext } = {}) {
   const file = keyFilePath();
   const directory = keyDirectory();
   if (!file || !directory) {
@@ -132,18 +138,17 @@ export async function storeKey({ plaintext = null, interactive = false } = {}) {
   if (!powershellExecutable()) {
     return { ok: false, error: "Windows secure storage needs Windows with PowerShell; use .env instead." };
   }
-  if (!interactive && !plaintext) return { ok: false, error: "Nothing to store." };
+  if (typeof plaintext !== "string" || plaintext.trim().length === 0) {
+    return { ok: false, error: "Nothing to store." };
+  }
 
-  const readSecret = interactive
-    ? "$secure = Read-Host -AsSecureString 'Paste the TypeSafe API key (input is hidden)'"
-    : `$secure = ConvertTo-SecureString -String $env:${ENV_SLOT} -AsPlainText -Force`;
   const script =
     "$ErrorActionPreference = 'Stop'; " +
     `New-Item -ItemType Directory -Force -Path ${quote(directory)} | Out-Null; ` +
-    `${readSecret}; ` +
+    `$secure = ConvertTo-SecureString -String $env:${ENV_SLOT} -AsPlainText -Force; ` +
     `ConvertFrom-SecureString -SecureString $secure | Set-Content -NoNewline -LiteralPath ${quote(file)}; ` +
     "'stored'";
-  const result = await runPowerShell(script, { env: plaintext ? { [ENV_SLOT]: plaintext } : {} });
+  const result = await runPowerShell(script, { env: { [ENV_SLOT]: plaintext } });
   if (!result.ok) return { ok: false, error: result.error ?? "PowerShell failed" };
   return { ok: true, file };
 }

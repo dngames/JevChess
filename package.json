@@ -15,6 +15,7 @@
     "test:strategy": "node tests/pipelines.test.mjs",
     "test:payload": "node tests/jev-payload.test.mjs",
     "test:soak": "node tests/soak.test.mjs",
+    "test:key": "node tests/key-store.test.mjs",
     "smoke": "node tools/smoke.mjs",
     "check:browser": "node tools/browser-check.mjs",
     "bench": "node tests/search-bench.mjs",
