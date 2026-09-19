@@ -328,13 +328,32 @@ try {
     // A real click, not a synthetic checked+change: the app wires its own state to the
     // click event, and this is how a person selects the mode.
     if (jev) jev.click();
+    // Give the White seat the planning strategy, so the plan panel has something to show.
+    const selects = Array.from(document.querySelectorAll('#players-grid select'));
+    let chosen = null;
+    for (const select of selects) {
+      const option = Array.from(select.options).find((o) => /strategist/i.test(o.textContent) || /strategist/i.test(o.value));
+      if (option) {
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        chosen = option.textContent.trim();
+        break;
+      }
+    }
     const submit = document.querySelector('#dialog-start');
     if (!submit) return 'missing submit button';
     submit.click();
-    return jev ? 'clicked ' + jev.value + ' then Start game' : 'clicked Start game (no radio found)';
+    return (jev ? 'clicked ' + jev.value : 'clicked Start game') + (chosen ? ' with White = ' + chosen : ' (no strategist option found)');
   })()`);
   console.log(`  info  ${started}`);
-  await sleep(9000);
+  // A planning move costs a Gemini review plus Jev plus the search — seven to twelve seconds is
+  // normal — so wait for the first move rather than guessing at a fixed pause.
+  const firstMoveDeadline = Date.now() + 90_000;
+  let played = await evaluate(DIAGNOSTICS);
+  while (Date.now() < firstMoveDeadline && played.moveListRows === 0) {
+    await sleep(2000);
+    played = await evaluate(DIAGNOSTICS);
+  }
 
   const request = gameRequests[gameRequests.length - 1];
   ok(Boolean(request), `the UI sent POST /api/games (${gameRequests.length} request(s))`);
@@ -342,11 +361,39 @@ try {
     notes.push(`create body: ${request.body.slice(0, 220)}`);
     ok(/"mode"\s*:\s*"jev-vs-jev"/.test(request.body), `the request asked for Jev vs Jev (${request.body.slice(0, 120)})`);
   }
-  const played = await evaluate(DIAGNOSTICS);
   ok(played.dialogOpen === false, "the dialog closed after starting the game");
   ok(played.moveListRows > 0, `moves were played and listed (${played.moveListRows} row(s))`);
   ok(played.pieces > 0, `pieces still drawn after moves (${played.pieces})`);
   ok(played.panelChars > 50, `the Jev panel has content (${played.panelChars} chars)`);
+
+  // The strategy layer must be visible to a watcher, not just present in the API.
+  const planBlock = await evaluate(`(() => {
+    const box = document.querySelector('#jev-panel .jev-plan');
+    if (!box) return null;
+    return {
+      kind: (box.querySelector('.jev-plan-kind')?.textContent ?? '').trim(),
+      facts: Array.from(box.querySelectorAll('.chip')).map((c) => c.textContent.trim()),
+      commentary: (box.querySelector('.jev-plan-commentary')?.textContent ?? '').trim(),
+      meta: (box.querySelector('.jev-plan-meta')?.textContent ?? '').trim(),
+      badges: Array.from(box.querySelectorAll('.badge')).map((b) => b.textContent.trim()),
+      text: box.textContent.replace(/\\s+/g, ' ').trim().slice(0, 300),
+    };
+  })()`);
+  ok(Boolean(planBlock), "the plan block is rendered in the Jev panel");
+  if (planBlock) {
+    console.log(`  info  plan panel: ${planBlock.kind}${planBlock.badges.length ? ` [${planBlock.badges.join(', ')}]` : ""}`);
+    if (planBlock.facts.length) console.log(`  info  plan facts: ${planBlock.facts.join(" · ")}`);
+    if (planBlock.commentary) console.log(`  info  commentary: ${planBlock.commentary}`);
+    if (planBlock.meta) console.log(`  info  plan meta:  ${planBlock.meta}`);
+    const explained =
+      /no strategist key/i.test(planBlock.text) ||
+      /no plan yet/i.test(planBlock.text) ||
+      /could not be used/i.test(planBlock.text);
+    ok(
+      Boolean(planBlock.kind) && planBlock.kind !== "No plan in force" || explained,
+      `the plan block either names a plan or explains why there is none ("${planBlock.kind}")`,
+    );
+  }
   await screenshot("03-jev-vs-jev.png");
 
   // --- a human game, driven by real input events -------------------------

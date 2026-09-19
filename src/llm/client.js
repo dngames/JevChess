@@ -204,6 +204,9 @@ export class GeminiClient {
             retryable,
           });
           this.stats.failures += 1;
+          // Tell the caller's log, or a failure is invisible from the server side: the first
+          // version of this never emitted anything, so a rate-limited run looked like silence.
+          this.#log({ event: "gemini-error", attempt, status: response.status, code: lastError.code, message: lastError.message });
           if (!retryable || attempt === this.maxAttempts) {
             return { ok: false, error: lastError.message, code: lastError.code, attempts: attempt, elapsedMs: Date.now() - startedAt, notes };
           }

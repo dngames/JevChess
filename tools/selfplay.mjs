@@ -37,8 +37,9 @@ import { Chess } from "../src/engine/chess.js";
 import { analyzeRoot, MATE_THRESHOLD } from "../src/engine/search.js";
 import { Game } from "../src/game.js";
 import { loadDotEnv } from "../src/env.js";
-import { resolveApiKey } from "../src/win-key.js";
+import { resolveApiKey, resolveSecret } from "../src/win-key.js";
 import { createJevClient } from "../src/jev/client.js";
+import { DEFAULT_MODEL as DEFAULT_GEMINI_MODEL, createLlmClient } from "../src/llm/client.js";
 import { resolveStrategy, getPreset } from "../src/strategies.js";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -82,6 +83,28 @@ for (const id of [SEAT_A, SEAT_B]) {
 
 const { key: API_KEY, source: KEY_SOURCE } = await resolveApiKey();
 const forceMock = MOCK || !API_KEY;
+
+// The strategist is a second model, so a match involving a planning seat needs it wired in here
+// too — a planning seat with no planner would quietly play as its bare preset, and the run would
+// measure nothing while looking like it had.
+const { key: GEMINI_KEY, source: GEMINI_SOURCE } = await resolveSecret("gemini");
+const llmClient =
+  GEMINI_KEY || MOCK
+    ? createLlmClient({
+        apiKey: GEMINI_KEY,
+        forceMock: MOCK || !GEMINI_KEY,
+        model: process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
+      })
+    : null;
+const planningSeats = [SEAT_A, SEAT_B].filter((id) => getPreset(id)?.llmPlan);
+if (planningSeats.length > 0 && (!llmClient || llmClient.mock) && !MOCK) {
+  console.error(
+    `Seat(s) ${planningSeats.join(", ")} plan with a reasoning model, but no Gemini key is available ` +
+      `(source: ${GEMINI_SOURCE}). The seats would fall back to their presets and the match would ` +
+      "measure nothing. Store a key (`npm run key:set -- gemini`) or pass --mock to accept fake plans.",
+  );
+  process.exit(2);
+}
 
 const jevClient = createJevClient({ apiKey: API_KEY, forceMock, model: process.env.TYPESAFE_MODEL ?? "jev-latest", maxAttempts: 3 });
 const MOCK_MODE = Boolean(jevClient.mock);
@@ -132,6 +155,7 @@ async function playGame({ gameNumber, seatA, seatB, aPlaysWhite }) {
     timeControl: null,
     playerConfigs,
     jevClient: client(),
+    llmClient,
     modelName: process.env.TYPESAFE_MODEL ?? "jev-latest",
     hasApiKey: Boolean(API_KEY) && !MOCK_MODE,
     aiMoveDelayMs: 0,
@@ -208,6 +232,12 @@ async function playGame({ gameNumber, seatA, seatB, aPlaysWhite }) {
       (sum, record) => ({ input: sum.input + (record.jev.usage?.input_tokens ?? 0), requests: sum.requests + (record.jev.requests ?? 0) }),
       { input: 0, requests: 0 },
     ),
+    // The strategy layer's own cost, kept separate from Jev's: the point of a planning seat is that
+    // it should pay for itself, and that argument needs both numbers.
+    movesUnderPlan: moves.filter((record) => record.jev.llm?.plan).length,
+    planReviews: game.snapshot().llm.reviews ?? 0,
+    planCostUsd: moves.reduce((sum, record) => sum + (record.jev.llm?.costUsd ?? 0), 0),
+    planTokens: moves.reduce((sum, record) => sum + (record.jev.llm?.usage?.inputTokens ?? 0) + (record.jev.llm?.usage?.outputTokens ?? 0), 0),
     finalFen: game.snapshot().fen,
     startFen,
   };
@@ -286,6 +316,17 @@ if (judged.length === 0) {
 }
 console.log(`  moves that needed a fallback or reported an error: ${totalFallbacks} (must be 0)`);
 console.log(`  Jev requests: ${totalRequests}, input tokens: ${totalInputTokens} ≈ $${((totalInputTokens / 1_000_000) * 0.042).toFixed(4)} for the whole run`);
+const totalPlanMoves = games.reduce((sum, game) => sum + game.movesUnderPlan, 0);
+const totalPlanReviews = games.reduce((sum, game) => sum + game.planReviews, 0);
+const totalPlanCost = games.reduce((sum, game) => sum + game.planCostUsd, 0);
+const totalPlanTokens = games.reduce((sum, game) => sum + game.planTokens, 0);
+if (totalPlanReviews > 0 || totalPlanMoves > 0) {
+  console.log(
+    `  strategist: ${totalPlanReviews} review(s) for ${totalMoves} plies (one per ${(totalMoves / Math.max(1, totalPlanReviews)).toFixed(1)}), ` +
+      `${totalPlanMoves} moves played under a plan, ${totalPlanTokens} tokens ≈ $${totalPlanCost.toFixed(4)}`,
+  );
+  console.log(`  combined cost of the run: ≈ $${(((totalInputTokens / 1_000_000) * 0.042) + totalPlanCost).toFixed(4)}`);
+}
 
 const report = {
   startedAt: new Date().toISOString(),
@@ -307,6 +348,7 @@ const report = {
   },
   fallbacks: totalFallbacks,
   usage: { requests: totalRequests, inputTokens: totalInputTokens, costUsd: (totalInputTokens / 1_000_000) * 0.042 },
+  strategist: { reviews: totalPlanReviews, movesUnderPlan: totalPlanMoves, tokens: totalPlanTokens, costUsd: totalPlanCost },
   games,
 };
 

@@ -791,6 +791,94 @@ textarea {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+/* ------------------------------------------------- the strategy layer's plan */
+
+.jev-plan {
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.jev-plan-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.jev-plan-kind {
+  font-weight: 650;
+  color: var(--accent-strong);
+  font-size: 0.95rem;
+}
+.jev-plan-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.badge-quiet {
+  color: var(--text-faint);
+  border-color: var(--line);
+}
+.badge-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.jev-plan-facts {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.chip {
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.chip-target {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 650;
+}
+.jev-plan-line {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+.jev-plan-commentary {
+  margin: 0;
+  font-size: 0.86rem;
+  font-style: italic;
+  color: var(--text);
+}
+.jev-plan-meta {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+.jev-plan-empty {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-faint);
+}
+.jev-plan-note {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+}
+.jev-plan-problem {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--warn);
+}
+
 .badge {
   font-size: 0.66rem;
   text-transform: uppercase;

@@ -204,6 +204,12 @@ export function createJevPanel(root) {
   const impact = el("p", "jev-impact", "");
   impact.hidden = true;
 
+  // The strategy layer, above the judgement: a watcher should be able to read what this seat is
+  // trying to do before reading how it scored one move.
+  const planBox = el("section", "jev-plan");
+  const planBody = el("div", "jev-plan-body");
+  planBox.append(planBody);
+
   const weightsBox = el("details", "jev-weights");
   const weightsSummary = el("summary", "jev-weights-summary", "Weights in force");
   const weightsBody = el("div", "jev-weights-body");
@@ -221,7 +227,7 @@ export function createJevPanel(root) {
   const errors = el("div", "jev-errors");
   errors.hidden = true;
 
-  root.append(header, impact, weightsBox, table, notesBox, footer, auditBox, errors);
+  root.append(header, planBox, impact, weightsBox, table, notesBox, footer, auditBox, errors);
 
   let onPreview = null;
 
@@ -264,6 +270,12 @@ export function createJevPanel(root) {
         clear(footer);
         errors.hidden = true;
         clear(errors);
+        renderPlan(planBody, {
+          planned: planInForce(game),
+          meta: null,
+          gameLlm: game ? game.llm : null,
+          seatPlans: seatUsesStrategist(game, game ? game.turn : null),
+        });
         return;
       }
 
@@ -275,6 +287,14 @@ export function createJevPanel(root) {
       if (jev.pipeline) metaBits.push(asText(jev.pipeline));
       if (jev.model) metaBits.push(asText(jev.model));
       headlineMeta.textContent = metaBits.join(" · ");
+
+      // The plan behind the displayed move, or the one in force for the side to move.
+      renderPlan(planBody, {
+        planned: (jev.llm && jev.llm.plan) || planInForce(game),
+        meta: jev.llm || null,
+        gameLlm: game ? game.llm : null,
+        seatPlans: seatUsesStrategist(game, (record && record.color) || (game ? game.turn : null)),
+      });
 
       const searchRank = Number(jev.searchRankOfChosen);
       const chosenRank = Number(jev.chosenRank);
@@ -630,3 +650,94 @@ export function clockContext(game, localNow, offset) {
 }
 
 export { el as createElement };
+
+/* ------------------------------------------------------- the strategy layer */
+
+/** Does the seat that produced this move plan with a reasoning model? */
+function seatUsesStrategist(game, color) {
+  if (!game || !game.players || (color !== "w" && color !== "b")) return true;
+  const seat = game.players[color];
+  return seat ? seat.usesStrategist === true : true;
+}
+
+/** The plan in force for whichever seat has the move, from the game snapshot. */function planInForce(game) {
+  const plans = game && game.llm && game.llm.plans ? game.llm.plans : null;
+  if (!plans) return null;
+  const turn = game && (game.turn === "w" || game.turn === "b") ? game.turn : null;
+  const plan = turn ? plans[turn] : null;
+  return plan && plan.plan ? plan : plans.w || plans.b || null;
+}
+
+/**
+ * Render the plan block. Three states matter to a watcher:
+ *  - a plan in force, with what it changed and what it cost;
+ *  - a seat that wants to plan but has no key (said plainly, with the command);
+ *  - a strategist that failed (the reason, not silence).
+ */
+function renderPlan(container, { planned, meta, gameLlm, seatPlans = true } = {}) {
+  if (!container) return;
+  clear(container);
+  const llm = gameLlm && typeof gameLlm === "object" ? gameLlm : null;
+  const plan = planned && typeof planned === "object" && planned.plan ? planned : null;
+
+  const heading = el("div", "jev-plan-head");
+  heading.appendChild(el("span", "jev-plan-kind", plan ? asText(plan.label || plan.plan) : "No plan in force"));
+  const badges = el("div", "jev-plan-badges");
+  if (llm && llm.model) badges.appendChild(el("span", "badge badge-quiet", asText(llm.model)));
+  if ((llm && llm.mock) || (meta && meta.mock)) badges.appendChild(el("span", "badge badge-mock", "Mock strategist"));
+  if (llm && llm.configured === false) badges.appendChild(el("span", "badge badge-warn", "No strategist key"));
+  if (badges.childNodes.length > 0) heading.appendChild(badges);
+  container.appendChild(heading);
+
+  if (!plan) {
+    const reason = !seatPlans
+      ? "This seat judges with Jev only and has no planner — pick the Strategist preset to give it one."
+      : llm && llm.configured === false
+        ? "This seat plans, but no Gemini key is configured — run `npm run key:set -- gemini` and restart."
+        : llm && llm.lastError
+          ? `The strategist could not be used: ${asText(llm.lastError)}`
+          : "No plan yet — the strategist is asked on this seat's first move.";
+    container.appendChild(el("p", "jev-plan-empty", reason));
+    return;
+  }
+
+  const facts = el("div", "jev-plan-facts");
+  const targets = Array.isArray(plan.targets) ? plan.targets : [];
+  if (targets.length > 0) {
+    for (const square of targets) facts.appendChild(el("span", "chip chip-target", asText(square)));
+  } else {
+    facts.appendChild(el("span", "chip", "no target square"));
+  }
+  facts.appendChild(el("span", "chip", `risk ${asText(plan.risk)}`));
+  if (Number.isFinite(Number(plan.reviewAfterPlies))) facts.appendChild(el("span", "chip", `review every ${Number(plan.reviewAfterPlies)} plies`));
+  if (plan.opponentPlan) facts.appendChild(el("span", "chip", `opponent: ${asText(plan.opponentPlan)}`));
+  container.appendChild(facts);
+
+  const shifts = meta && meta.applied && meta.applied.weights ? Object.entries(meta.applied.weights) : [];
+  const dims = meta && meta.applied && Array.isArray(meta.applied.dims) ? meta.applied.dims : [];
+  const lines = [];
+  if (shifts.length > 0) {
+    lines.push(`Weights shifted: ${shifts.map(([key, delta]) => `${key} ${delta > 0 ? "+" : ""}${Number(delta).toFixed(2)}`).join(", ")}`);
+  }
+  if (dims.length > 0) lines.push(`Jev asked about: ${dims.join(", ")}`);
+  if (meta && meta.reason) lines.push(`Review trigger: ${asText(meta.reason)}`);
+  for (const line of lines) container.appendChild(el("p", "jev-plan-line", line));
+
+  if (plan.commentary) container.appendChild(el("p", "jev-plan-commentary", asText(plan.commentary)));
+
+  const footerBits = [];
+  if (meta && meta.thinkingLevel) footerBits.push(`thinking ${asText(meta.thinkingLevel)}`);
+  if (meta && meta.api) footerBits.push(`${asText(meta.api)} API`);
+  if (meta && Number.isFinite(Number(meta.elapsedMs))) footerBits.push(`${(Number(meta.elapsedMs) / 1000).toFixed(1)}s`);
+  if (meta && meta.usage) {
+    const { inputTokens = 0, outputTokens = 0, thoughtTokens = 0 } = meta.usage;
+    footerBits.push(`${inputTokens} in / ${outputTokens} out${thoughtTokens ? ` / ${thoughtTokens} thought` : ""}`);
+  }
+  if (meta && typeof meta.costUsd === "number") footerBits.push(`$${meta.costUsd.toFixed(5)}`);
+  if (llm && Number.isFinite(Number(llm.reviews)) && llm.reviews > 0) footerBits.push(`${llm.reviews} review${llm.reviews === 1 ? "" : "s"} this game`);
+  if (llm && Number.isFinite(Number(llm.costUsd)) && llm.costUsd > 0) footerBits.push(`$${Number(llm.costUsd).toFixed(4)} total`);
+  if (footerBits.length > 0) container.appendChild(el("p", "jev-plan-meta", footerBits.join(" · ")));
+
+  for (const note of (meta && meta.notes) || []) container.appendChild(el("p", "jev-plan-note", asText(note)));
+  for (const problem of (meta && meta.problems) || []) container.appendChild(el("p", "jev-plan-problem", asText(problem)));
+}
