@@ -6,7 +6,7 @@ the move it produced.
 
 - **Human vs Jev** — you take either colour, Jev takes the other.
 - **Jev vs Jev** — two strategies play each other, move by move, with pause and step.
-- **Configurable strategy per seat** — 8 presets (one labelled *best*) plus sliders that
+- **Configurable strategy per seat** — 9 presets (one labelled *best*, one that plans with a reasoning model) plus sliders that
   change how the code's search and Jev's judgements are blended.
 - **Zero dependencies, no build step** — a plain Node server and plain browser modules.
 
@@ -32,7 +32,8 @@ On Windows there is a better option than a plaintext file — **Windows secure s
 which encrypts the key with DPAPI for your user only, outside the repository:
 
 ```
-npm run key:set        # hidden prompt: paste the key, press Enter (nothing is echoed)
+npm run key:set        # hidden prompt: paste the TypeSafe key, press Enter (nothing is echoed)
+npm run key:set -- gemini   # and the same for the strategist's Gemini key, if you want planning
 npm run key:status     # confirms a key is stored, never prints the key itself
 npm run key:clear
 ```
@@ -128,6 +129,7 @@ meaningful search weight.
 | Preset | Pipeline | Character |
 | --- | --- | --- |
 | **Balanced (best)** | shortlist + composite | Default for both seats |
+| **Strategist** | shortlist + composite | A reasoning model picks the plan and shifts the weights; needs a Gemini key |
 | Tactical (hard to beat) | shortlist + composite | 4-ply search, 60% of the weight on the search, Jev asked only quality + safety |
 | Positional | shortlist + composite | Jev judges activity, pawn structure, own king safety |
 | Attacking | shortlist + composite | Jev's king-pressure score dominates |
@@ -141,6 +143,40 @@ The UI sliders move the weights: `search`, `choice`, `quality`, `safety`, `activ
 weighted average over whichever signals exist, so a slider set to 0 really removes that
 signal. The panel always shows the weights that were in force and the per-candidate
 breakdown.
+
+---
+
+## The strategy layer: Jev judges, a reasoning model plans
+
+`npm run key:set -- gemini` adds a second model, and it never touches the move — it chooses the plan.
+
+| It decides | It cannot |
+| --- | --- |
+| one of 12 named plans, plus up to three target squares | name or pick a move |
+| small shifts to the scoring weights (±0.25 each) | change the pipeline, candidate limit or search budget |
+| which of Jev's dimensions to ask about | touch a dimension the strategy does not weigh (dropped, and said out loud) |
+| risk posture and how many plies until the next review | promise anything: a failed or nonsense plan is ignored |
+
+The **Strategist** preset wires that together: the code search ranks the legal moves, Jev judges the
+candidates under the plan-adjusted weights, and code plays one of them. The plan is *cached* and
+reviewed only at a trigger — plan expiry, a phase change, the opponent landing on a target square, or
+a ≥250 cp swing in the assessment at least three plies after the last review. Measured with a stub
+that asks for a review every eight plies: **10 strategist calls for 32 plies**, one per 3.2 plies.
+Routine reviews ask for `low` thinking and crises for `high`, because thought tokens bill as output.
+
+Two asymmetries with the Jev layer are deliberate. The strategist **is** shown the engine's
+evaluation, the material and the phase — planning around the engine is the point, whereas anchoring a
+judge on it would destroy the information its judgement carries. And it is **not** shown a legal-move
+list, so it cannot be tempted to choose one.
+
+Whether this is worth its latency is an open, measurable question:
+
+```
+npm run selfplay -- --a=strategist --b=balanced --games=20 --budget=300
+```
+
+If the planning seat does not beat `balanced` over twenty games, the layer is not earning its calls —
+and the honest response would be to drop it rather than keep it for the architecture diagram.
 
 ---
 
@@ -177,6 +213,8 @@ npm run test:strategy # 45 checks: pipelines, fallbacks, veto loop, composite, g
 npm run test:payload  # 23 checks: the HTTP request and every payload, against the API schema
 npm run test:soak     # 9 checks, ~2 min: whole games played to a finish and replayed
 npm run test:key      # 16 checks: the key prompt and the Windows secure-storage round trip
+npm run test:llm      # 50 checks: plan vocabulary, its bounds, and the Gemini wire contract
+npm run test:strategist # 14 checks: the plan layer inside a real game loop
 npm run bench         # how long the code half of a move takes
 npm run smoke         # drives a running server over HTTP + SSE (62 checks)
 npm run real-check    # asks a live server for one real Jev move and inspects the record
