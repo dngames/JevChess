@@ -30,8 +30,20 @@ export class Game {
    * @param {object} opts.jevClient
    * @param {string} opts.modelName
    * @param {boolean} opts.hasApiKey
+   * @param {number} [opts.aiMoveDelayMs] pacing between the two AI seats in Jev vs Jev
    */
-  constructor({ id, mode, humanColor = "w", fen, timeControl = null, playerConfigs = {}, jevClient, modelName = "jev-latest", hasApiKey = false }) {
+  constructor({
+    id,
+    mode,
+    humanColor = "w",
+    fen,
+    timeControl = null,
+    playerConfigs = {},
+    jevClient,
+    modelName = "jev-latest",
+    hasApiKey = false,
+    aiMoveDelayMs = AI_MOVE_DELAY_MS,
+  }) {
     this.id = id;
     this.mode = mode;
     this.humanColor = mode === "human-vs-jev" ? humanColor : null;
@@ -39,6 +51,10 @@ export class Game {
     this.jevClient = jevClient;
     this.modelName = modelName;
     this.hasApiKey = hasApiKey;
+    // Pacing between the two AI seats, so a person can watch the pieces move. Zero is
+    // legitimate (tests, and a "fast forward" toggle), so it is clamped rather than defaulted.
+    const requestedDelay = Number(aiMoveDelayMs);
+    this.aiMoveDelayMs = Number.isFinite(requestedDelay) ? Math.min(5000, Math.max(0, Math.round(requestedDelay))) : AI_MOVE_DELAY_MS;
 
     this.chess = new Chess(fen && fen.trim() ? fen.trim() : undefined);
     this.startFen = this.chess.fen();
@@ -494,7 +510,7 @@ export class Game {
     const turn = this.chess.turn();
     const player = this.players[turn];
 
-    if (this.mode === "jev-vs-jev") await sleep(AI_MOVE_DELAY_MS);
+    if (this.mode === "jev-vs-jev" && this.aiMoveDelayMs > 0) await sleep(this.aiMoveDelayMs);
 
     this.ai = { thinking: true, side: turn, startedAt: Date.now(), strategyName: player.name };
     this.emit("ai-thinking", { side: turn, playerName: player.name, strategyName: player.name, startedAt: this.ai.startedAt });
@@ -563,7 +579,13 @@ function makePlayer(color, humanColor, config = {}, previous = null) {
     return { kind: "human", color, name: "You", strategy: null, strategyId: null, pipeline: null, weights: null };
   }
   const strategyId = config?.strategyId ?? previous?.strategyId ?? DEFAULT_STRATEGY_ID;
-  const strategy = resolveStrategy({ strategyId, weights: config?.weights ?? previous?.weights });
+  // `timeBudgetMs` must be forwarded: without it, a caller asking for a fast game silently
+  // got the preset's 1.4 s search budget instead (found by tests/soak.test.mjs).
+  const strategy = resolveStrategy({
+    strategyId,
+    weights: config?.weights ?? previous?.weights,
+    timeBudgetMs: config?.timeBudgetMs ?? previous?.timeBudgetMs,
+  });
   return {
     kind: "jev",
     color,

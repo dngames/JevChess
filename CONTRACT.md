@@ -16,7 +16,7 @@ package.json          {"type":"module"}, scripts.start, scripts.test
 public/index.html     the app shell
 public/style.css
 public/js/*.js        browser ES modules, relative imports with .js extensions
-src/engine/chess.js   rules engine (delivered separately, exact API in src/engine/README-api.md)
+src/engine/chess.js   rules engine (perft-verified; API and its two traps in src/engine/README.md)
 src/engine/search.js  shallow negamax + static eval + threat detection
 src/jev/client.js     TypeSafe HTTP client (retry/backoff, mock provider)
 src/jev/state.js      builds the `state` object sent to Jev

@@ -9,10 +9,12 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node tests/perft.test.mjs && node tests/ui-logic.test.mjs && node tests/pipelines.test.mjs",
+    "test": "node tests/perft.test.mjs && node tests/ui-logic.test.mjs && node tests/pipelines.test.mjs && node tests/jev-payload.test.mjs",
     "test:engine": "node tests/perft.test.mjs",
     "test:ui": "node tests/ui-logic.test.mjs",
     "test:strategy": "node tests/pipelines.test.mjs",
+    "test:payload": "node tests/jev-payload.test.mjs",
+    "test:soak": "node tests/soak.test.mjs",
     "smoke": "node tools/smoke.mjs",
     "check:browser": "node tools/browser-check.mjs",
     "bench": "node tests/search-bench.mjs",

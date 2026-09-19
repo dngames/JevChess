@@ -156,11 +156,16 @@ Board on the left, Jev's reasoning on the right.
 
 ## Tests
 
+`npm test` runs the four fast suites (~70 s). The two slow ones are separate on purpose:
+`test:soak` plays whole games and takes about two minutes, and `check:browser` needs Chrome.
+
 ```
 npm test              # everything below in one run
 npm run test:engine   # 189 checks: perft to depth 5, castling, en passant, SAN, draws
 npm run test:ui       # 59 checks: board geometry, clocks, history preview, PGN
 npm run test:strategy # 45 checks: pipelines, fallbacks, veto loop, composite, game loop
+npm run test:payload  # 23 checks: the HTTP request and every payload, against the API schema
+npm run test:soak     # 9 checks, ~2 min: whole games played to a finish and replayed
 npm run bench         # how long the code half of a move takes
 npm run smoke         # drives a running server over HTTP + SSE (62 checks)
 npm run check:browser # renders the app in headless Chrome and plays real moves
@@ -175,8 +180,23 @@ What each protects:
   names falling back to real options, a silent Jev deferring to the search, the veto loop
   excluding what it vetoed, the composite arithmetic, clocks flagging, undo pairing.
 - **UI logic** — the DOM-free half of the front end.
+- **Payload** — the half of the integration a mocked Jev cannot check: that the request goes
+  to `POST https://api.typesafe.ai/v1/systemone` with a bearer token, that the body is
+  exactly `state`/`model`/`questions`, that every question matches the documented schema
+  (option maps for `choice`, 2–10 distinct levels for `score`, `true`/`false` criteria for
+  `noul`), that every `cand_*` question names a candidate that exists in the state it rides
+  with, that the payload survives JSON exactly, and that it fits the 64k/32k limits. It also
+  asserts that the API key can never appear in an error message, and that 429/5xx retry while
+  422 does not. This is what makes the first call with a real key likely to work first time.
 - **Smoke** — the real wire format: REST snapshots, a human move, an AI reply arriving on
   its own, SSE frames, error codes, undo, strategy switching, draw and resignation.
+- **Soak** — whole games, which is where the long tail lives. Against engine/mock seats with a
+  deliberately tiny search budget (the point is the loop, not the strength), it plays games to
+  a real result and asserts that every game **replays move for move** from its own record. It
+  has exercised games up to 289 plies, castling by both sides, promotion (including
+  underpromotion), mate, threefold repetition, insufficient material, flag falls and undo
+  mid-game — and it found the bug where a requested per-player search budget was silently
+  ignored, so "fast game" requests ran at the preset's 1.4 s per move.
 
 ## Does Jev actually understand chess?
 
@@ -208,15 +228,33 @@ project, and nothing here pretends otherwise.
 
 ## Cost and latency
 
-Per move, one request of roughly 3–6k input tokens (a 12-candidate shortlist, ~55
-questions). At Jev's $0.042 per million input tokens with free output that is about
-**$0.0003 per move** — a few cents per thousand moves. Limits: 64k tokens per request,
-32k for the state plus the longest question.
+Measured, not guessed — `npm run test:payload` prints this table for a real middlegame
+(Jev bills input tokens at $0.042 per million; output is free):
 
-Latency is dominated by the code search, which is capped at 1.4 s per move (`balanced`), plus
-one model round trip. The search deepens iteratively and returns the deepest completed
-iteration, so a busy position costs a 2-ply look rather than an unbounded 3-ply one. The
-evaluation bar uses a separate 200 ms budget so the human's own moves feel immediate.
+| Strategy | Requests | Questions | Input tokens | Cost / move |
+| --- | --- | --- | --- | --- |
+| `balanced` (best) | 1 | 64 | 12 347 | $0.00052 |
+| `attacking` | 1 | 60 | 12 429 | $0.00052 |
+| `endgame` | 1 | 52 | 10 492 | $0.00044 |
+| `positional` | 1 | 52 | 9 994 | $0.00042 |
+| `tactical` | 1 | 20 | 4 949 | $0.00021 |
+| `pure-jev` | 1 | 4 | 3 880 | $0.00016 |
+| `jev-verify` | 2 | 8 | 4 433 | $0.00019 |
+| `code-only` | 0 | 0 | 0 | $0 |
+
+At the default strategy that is roughly **$0.0005 per move, about 1 900 moves per dollar**.
+The interesting part is *where* the tokens go: only ~2 000 of the 12 300 are the position
+itself; the rest is question text, because every candidate gets one Score question per
+dimension. So the cost knob is candidates × dimensions — which is exactly why `tactical`
+(8 candidates, 2 dimensions) is 2.5× cheaper than `balanced` (12 × 5).
+
+Latency is dominated by the code search, capped at 1.4 s per move, plus one model round
+trip. The search deepens iteratively and returns the deepest completed iteration, so a busy
+position costs a 2-ply look rather than an unbounded 3-ply one. The evaluation bar uses a
+separate 200 ms budget so the human's own moves feel immediate. Documented limits: 64k
+tokens per request, 32k for the state plus the longest question — the widest strategy above
+peaks at ~2 300 tokens for state + longest question, so there is a lot of headroom for more
+questions.
 
 ## Configuration
 
@@ -241,15 +279,18 @@ CONTRACT.md              the frozen HTTP/SSE + state contract the UI is built ag
 src/server.js            http + SSE + static files, .env loading, key stays here
 src/game.js              rules, players, clocks, move records, the AI turn loop
 src/strategies.js        presets, sliders, the search time budget   ← edit weights here
-src/engine/chess.js      0x88 rules engine (perft-verified)
+src/engine/chess.js      0x88 rules engine (perft-verified; see src/engine/README.md)
 src/engine/search.js     alpha-beta + quiescence + evaluation, iterative deepening
 src/jev/client.js        TypeSafe client: retries, backoff, error mapping, mock
 src/jev/state.js         what Jev sees (and the two deliberate omissions)
 src/jev/questions.js     every question and threshold               ← edit wording here
 src/jev/pipelines.js     the four ways a move gets chosen
 public/                  the board and panels (no framework, no build step)
+screenshots/             evidence from the last browser check (committed)
 tools/experiment.mjs     measures Jev's chess judgement
 tools/smoke.mjs          drives a running server end to end
+tools/browser-check.mjs  renders the app in headless Chrome and plays real moves
+tools/win-key.mjs        store / inspect / clear the API key in Windows secure storage
 ```
 
 ## Honest limitations
@@ -259,11 +300,12 @@ tools/smoke.mjs          drives a running server end to end
   not playing strength on its own.
 - **Mock Jev is not chess.** With no key, moves are pseudo-random but deterministic, and the
   UI says so. Any strategy comparison run in mock mode is meaningless.
-- **Rendering is unverified by pixels.** Everything visual was checked by unit tests, a
-  DOM-stub load, a fake-server integration pass, syntax checks and static review — but no
-  browser was available in the build environment, so nobody has looked at the board yet.
-  Glyph metrics inside the SVG cells and the right-hand column's width at 1280×800 are the
-  two things most worth your eye.
+- **The board has been looked at, but only headlessly.** `npm run check:browser` renders the
+  app in headless Chrome, plays a real drag-and-drop move, and writes the committed
+  `screenshots/`. That confirms geometry, glyphs, animation wiring, the dialog and the
+  panels — it is not the same as a person using it, and the browser check itself needs
+  Chrome plus wider permissions than a sandboxed session allows. Your eye is still the
+  final word on whether it *feels* right.
 - **Draw offers to a Jev opponent** are decided by a single yes/no question about the
   current position, not by anything resembling a real evaluation.
 - Only a single Jev call per move is used in the composite pipeline; the audit pipeline adds

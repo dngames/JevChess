@@ -122,6 +122,9 @@ export class TypeSafeClient {
     let lastError = null;
 
     for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
+      // A signal that is already aborted never fires its event again, so an aborted
+      // caller used to sail straight into a request. Check it explicitly.
+      if (signal?.aborted) throw new TypeSafeError("Jev request cancelled.", { code: "cancelled" });
       const controller = new AbortController();
       const onAbort = () => controller.abort();
       if (signal) signal.addEventListener("abort", onAbort, { once: true });

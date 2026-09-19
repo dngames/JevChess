@@ -300,7 +300,7 @@ export function isWeightKey(key) {
  * Unknown weight keys are dropped; out-of-range numbers are clamped; a missing or
  * unknown preset falls back to the default so a bad request can never stop a game.
  */
-export function resolveStrategy({ strategyId, weights } = {}) {
+export function resolveStrategy({ strategyId, weights, timeBudgetMs } = {}) {
   const preset = getPreset(strategyId) ?? getPreset(DEFAULT_STRATEGY_ID);
   const merged = { ...preset.weights };
   const appliedOverrides = {};
@@ -311,6 +311,13 @@ export function resolveStrategy({ strategyId, weights } = {}) {
     merged[key] = Math.min(1, Math.max(0, numeric));
     appliedOverrides[key] = merged[key];
   }
+
+  // The search budget can be overridden per player (clamped to something sane), which is
+  // what lets a soak test play whole games quickly without touching the defaults.
+  const requestedBudget = Number(timeBudgetMs);
+  const resolvedBudget = Number.isFinite(requestedBudget)
+    ? Math.min(10_000, Math.max(50, Math.round(requestedBudget)))
+    : preset.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS;
 
   // Keep only the weights this strategy can actually use, so the UI's "weights in
   // force" list matches what the composite step really did.
@@ -332,7 +339,7 @@ export function resolveStrategy({ strategyId, weights } = {}) {
     candidateLimit: preset.candidateLimit,
     searchDepth: preset.searchDepth ?? 0,
     quiescence: preset.quiescence ?? 2,
-    timeBudgetMs: preset.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS,
+    timeBudgetMs: resolvedBudget,
     temperature: preset.temperature ?? 0.1,
     maxVetoes: preset.maxVetoes ?? 3,
     dims: preset.dims ?? [],
