@@ -175,6 +175,30 @@ Whether this is worth its latency is an open, measurable question:
 npm run selfplay -- --a=strategist --b=balanced --games=20 --budget=300
 ```
 
+**First six games (colour-balanced, `--games=6`, 300 ms/move), measured 2026-09-19:** strategist
+**3 wins, 2 losses, 1 unfinished** — a score of 3/6, i.e. a coin flip, so the plan layer shows no
+head-to-head edge yet. The move-level picture is sharper and less kind, because both seats ask Jev
+and only the planning seat shifts the weights:
+
+| Seat | Deviating moves re-judged | Better | Worse | Indistinguishable | Mean cost |
+| --- | --- | --- | --- | --- | --- |
+| strategist (plan in force on 363/725 plies) | 37 | 0 | 17 | 20 | **−88 cp** |
+| balanced (same Jev, no plan) | 32 | 1 | 13 | 18 | −34 cp |
+
+So the plan *does* have impact — it deviates on ~50–60% of plies — but the deviations it induces
+cost more than twice as much per move as the ones the same judge produces without a plan, and not
+one of the 37 sampled planning deviations beat the search. The likely culprit is the weight shift
+itself (±0.25 per dimension), not the planning: the plan is at its best when it decides *what to
+ask Jev*, which is also the part that costs nothing in playing strength. The cross-check is to run
+a routing-only variant (the plan sets `askJev` but no `weightDeltas`) against `balanced` over
+twenty games.
+
+With six games the match score is noise; the impact split is the part worth acting on. Also note
+what a draw-heavy session means here: at 300 ms/move both seats defend competently, so even a
+clearly weaker mover often only fails to win rather than loses — "I got a draw" is consistent with
+both "the plan is harmless" and "the plan is wasting material", which is why the deviation cost
+above is the number to watch, and why the plan block in the UI now counts it live.
+
 If the planning seat does not beat `balanced` over twenty games, the layer is not earning its calls —
 and the honest response would be to drop it rather than keep it for the architecture diagram.
 
@@ -201,6 +225,13 @@ Board on the left, Jev's reasoning on the right.
   reading "to move" — or "Jev thinking… 3.4s" while that seat is choosing, timed from the
   server's `ai.startedAt` so a reload or a second tab shows the same number. In a Jev-vs-Jev
   game this is the only way to tell which engine is on the clock at a glance.
+- **Whether the plan changed anything.** A plan can be in force and still agree with the search
+  every time, so the plan block counts it: "3 of 7 moves played under a plan · 2 differed from
+  the search's own first choice · −41 cp on average at depth 4 · 2 reviews so far". The
+  deviation count and the centipawn figure are code-computed from the move records — the
+  centipawn number is against the game's *own* search depth, so it says what the deviation cost
+  by the measure the move was chosen with, not ground truth. A plan that never overrides the
+  search says so instead of printing a flattering zero.
 
 ---
 
