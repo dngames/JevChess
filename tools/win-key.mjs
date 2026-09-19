@@ -1,11 +1,14 @@
 /**
- * Manage the TypeSafe API key in Windows secure storage (DPAPI, per Windows user).
+ * Manage API keys in Windows secure storage (DPAPI, per Windows user).
  *
- *   node tools/win-key.mjs status                  # is a key stored, and where
- *   node tools/win-key.mjs set                     # hidden prompt in this terminal
- *   node tools/win-key.mjs set --from-env VAR      # take it from an environment variable
- *   node tools/win-key.mjs get [--print]           # confirm what is stored (masked by default)
- *   node tools/win-key.mjs clear                   # delete the stored key
+ *   node tools/win-key.mjs status                     # every secret this app knows
+ *   node tools/win-key.mjs status gemini              # just one
+ *   node tools/win-key.mjs set [name]                 # hidden prompt in this terminal
+ *   node tools/win-key.mjs set [name] --from-env VAR  # take it from an environment variable
+ *   node tools/win-key.mjs get [name] [--print]       # confirm what is stored (masked by default)
+ *   node tools/win-key.mjs clear [name]               # delete it
+ *
+ *   name is one of: typesafe (default) | gemini
  *
  * The prompt is implemented here in Node, not in PowerShell. The first version asked
  * PowerShell's `Read-Host` while spawning it with `-NonInteractive` — a combination that can
@@ -13,15 +16,28 @@
  * echo off, and PowerShell is left with only the job it is actually good for here: encrypting
  * with DPAPI. That keeps a single, tested storage path.
  *
- * The key is never echoed, never printed unless you ask with --print, and never appears on a
+ * A key is never echoed, never printed unless you ask with --print, and never appears on a
  * command line or in the process list.
  */
 
-import { clearStoredKey, hasStoredKey, keyFilePath, readStoredKey, storeKey } from "../src/win-key.js";
+import {
+  DEFAULT_SECRET,
+  SECRETS,
+  clearStoredKey,
+  hasStoredKey,
+  isSecretName,
+  keyFilePath,
+  readStoredKey,
+  secretNames,
+  storeKey,
+} from "../src/win-key.js";
 import { readHiddenLine } from "./hidden-prompt.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
-const file = keyFilePath();
+const positional = rest.filter((argument) => !argument.startsWith("--"));
+const nameArg = positional.find((argument) => isSecretName(argument));
+const name = nameArg ?? DEFAULT_SECRET;
+const entry = SECRETS[name];
 
 function mask(key) {
   if (!key) return "(empty)";
@@ -31,12 +47,14 @@ function mask(key) {
 
 function usage() {
   console.log(`Usage:
-  node tools/win-key.mjs status
-  node tools/win-key.mjs set [--from-env VARIABLE]
-  node tools/win-key.mjs get [--print]
-  node tools/win-key.mjs clear
+  node tools/win-key.mjs status [name|--all]
+  node tools/win-key.mjs set [name] [--from-env VARIABLE]
+  node tools/win-key.mjs get [name] [--print]
+  node tools/win-key.mjs clear [name]
 
-Storage: ${file ?? "(no LOCALAPPDATA on this machine)"}
+Secrets: ${secretNames().join(" | ")}   (default: ${DEFAULT_SECRET})
+Storage: ${keyFilePath(name) ?? "(no LOCALAPPDATA on this machine)"}
+
 The blob is encrypted for the current Windows user and lives outside the repository.`);
 }
 
@@ -49,48 +67,56 @@ async function readPipedStdin() {
   return value.length > 0 ? value : null;
 }
 
-async function store(value, how) {
-  const result = await storeKey({ plaintext: value });
+async function store(value, how, which = name) {
+  const result = await storeKey({ plaintext: value, name: which });
   if (!result.ok) {
-    console.error(`Could not store the key: ${result.error}`);
+    console.error(`Could not store the ${SECRETS[which].label}: ${result.error}`);
     process.exitCode = 1;
     return;
   }
-  console.log(`Stored ${mask(value)} in ${result.file}`);
-  console.log(`Encrypted for this Windows user only; readable with \`npm run key:status\`.`);
+  console.log(`Stored ${mask(value)} for ${which} in ${result.file}`);
+  console.log("Encrypted for this Windows user only; readable with `npm run key:status`.");
   console.log(`Restart the server to use it (${how}).`);
+}
+
+async function statusFor(which) {
+  const file = keyFilePath(which);
+  const stored = hasStoredKey(which);
+  console.log(`${which} — ${SECRETS[which].label}`);
+  console.log(`  storage file: ${file ?? "(unavailable)"}`);
+  console.log(`  stored key:   ${stored ? "yes" : "no"}`);
+  if (stored) {
+    const key = await readStoredKey(which);
+    console.log(`  readable:     ${key ? `yes — ${mask(key)}` : "no (different Windows user or damaged file)"}`);
+  }
+  if ((process.env[SECRETS[which].envVar] ?? "").trim()) {
+    console.log(`  note:         ${SECRETS[which].envVar} is also set in the environment/.env, which takes precedence`);
+  }
 }
 
 switch (command) {
   case "status": {
-    console.log(`storage file: ${file ?? "(unavailable)"}`);
-    console.log(`stored key:   ${hasStoredKey() ? "yes" : "no"}`);
-    if (hasStoredKey()) {
-      const key = await readStoredKey();
-      console.log(`readable:     ${key ? `yes — ${mask(key)}` : "no (different Windows user or damaged file)"}`);
-    }
-    if ((process.env.TYPESAFE_API_KEY ?? "").trim()) {
-      console.log("note:         TYPESAFE_API_KEY is also set in the environment/.env, which takes precedence");
-    }
+    const targets = rest.includes("--all") || !nameArg ? secretNames() : [name];
+    for (const which of targets) await statusFor(which);
     break;
   }
 
   case "set": {
     const envFlag = rest.indexOf("--from-env");
     if (envFlag >= 0) {
-      const name = rest[envFlag + 1];
-      if (!name) {
+      const variable = rest[envFlag + 1];
+      if (!variable) {
         console.error("--from-env needs a variable name, e.g. --from-env TYPESAFE_API_KEY");
         process.exitCode = 2;
         break;
       }
-      const value = (process.env[name] ?? "").trim();
+      const value = (process.env[variable] ?? "").trim();
       if (!value) {
-        console.error(`${name} is empty; nothing stored.`);
+        console.error(`${variable} is empty; nothing stored.`);
         process.exitCode = 2;
         break;
       }
-      await store(value, `${name} was read and can now be unset`);
+      await store(value, `${variable} was read and can now be unset`);
       break;
     }
 
@@ -102,14 +128,14 @@ switch (command) {
 
     if (!process.stdin.isTTY) {
       console.error("This terminal is not interactive, so there is nothing to prompt.");
-      console.error("Alternatives: `npm run key:set -- --from-env TYPESAFE_API_KEY`, pipe the key in, or use .env");
+      console.error(`Alternatives: \`npm run key:set -- ${name} --from-env ${entry.envVar}\`, pipe the key in, or use .env`);
       process.exitCode = 2;
       break;
     }
 
     try {
       const typed = await readHiddenLine(process.stdin, {
-        question: "Paste the TypeSafe API key, then press Enter (input is hidden): ",
+        question: `Paste the ${entry.label}, then press Enter (input is hidden): `,
       });
       if (!typed) {
         console.error("Nothing entered; nothing stored.");
@@ -119,16 +145,16 @@ switch (command) {
       await store(typed, "the prompt read it");
     } catch (error) {
       console.error(`Could not read the key: ${error.message}`);
-      console.error("Alternatives: `npm run key:set -- --from-env TYPESAFE_API_KEY`, or put TYPESAFE_API_KEY in .env");
+      console.error(`Alternatives: \`npm run key:set -- ${name} --from-env ${entry.envVar}\`, or put ${entry.envVar} in .env`);
       process.exitCode = 1;
     }
     break;
   }
 
   case "get": {
-    const key = await readStoredKey();
+    const key = await readStoredKey(name);
     if (!key) {
-      console.error("No readable key is stored. Use `set` first, or put TYPESAFE_API_KEY in .env.");
+      console.error(`No readable ${name} key is stored. Use \`set ${name}\` first, or put ${entry.envVar} in .env.`);
       process.exitCode = 1;
       break;
     }
@@ -137,8 +163,8 @@ switch (command) {
   }
 
   case "clear": {
-    const result = await clearStoredKey();
-    console.log(result.removed ? `Removed ${file}` : "Nothing was stored.");
+    const result = await clearStoredKey(name);
+    console.log(result.removed ? `Removed ${keyFilePath(name)}` : `Nothing was stored for ${name}.`);
     break;
   }
 
