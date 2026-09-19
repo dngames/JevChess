@@ -15,6 +15,7 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadDotEnv, describeApiKey } from "./env.js";
+import { resolveApiKey } from "./win-key.js";
 import { createJevClient } from "./jev/client.js";
 import { Game } from "./game.js";
 import { strategiesPayload, getPreset, DEFAULT_STRATEGY_ID } from "./strategies.js";
@@ -34,9 +35,12 @@ loadDotEnv(join(ROOT, ".env"));
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "127.0.0.1";
 const MODEL = process.env.TYPESAFE_MODEL ?? "jev-latest";
-const API_KEY = (process.env.TYPESAFE_API_KEY ?? "").trim();
 const FORCE_MOCK = ["1", "true", "yes"].includes(String(process.env.JEV_MOCK ?? "").toLowerCase());
 const VERSION = await readVersion();
+
+// Environment/.env first (a shell variable overrides), then Windows secure storage.
+// resolveApiKey never throws: a missing or unreadable stored key just means mock play.
+const { key: API_KEY, source: KEY_SOURCE } = await resolveApiKey();
 
 const jevClient = createJevClient({
   apiKey: API_KEY,
@@ -66,7 +70,7 @@ server.listen(PORT, HOST, () => {
   const url = `http://${HOST}:${PORT}`;
   console.log(`JevChess ${VERSION} listening on ${url}`);
   console.log(`  model:   ${MODEL}`);
-  console.log(`  api key: ${describeApiKey(API_KEY)}${jevClient.mock ? "  → running MOCK Jev (answers are deterministic, not real chess judgement)" : ""}`);
+  console.log(`  api key: ${describeApiKey(API_KEY)} — from ${KEY_SOURCE}${jevClient.mock ? "  → running MOCK Jev (deterministic answers, not real chess judgement)" : ""}`);
   console.log(`  strategies: ${strategiesPayload().presets.length} presets; default ${DEFAULT_STRATEGY_ID}`);
   console.log(`  open ${url} in your browser.`);
 });

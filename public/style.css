@@ -1170,6 +1170,15 @@ textarea {
   display: none;
 }
 
+/* The `hidden` attribute must win over any layout display value.
+   Without this, the many `display: flex` / `inline-flex` rules in this file silently
+   defeat `hidden` — which left the custom-clock row visible (and its invalid default
+   value blocking every dialog submit) and leaked buttons like "Offer draw" into the
+   toolbar when the app had hidden them. */
+[hidden] {
+  display: none !important;
+}
+
 /* --------------------------------------------------------------- toasts */
 
 .toast-stack {

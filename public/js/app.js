@@ -793,7 +793,14 @@ function syncDialogForMode() {
 }
 
 function syncCustomClock() {
-  dom.customClock.hidden = dom.timeControl.value !== "custom";
+  const custom = dom.timeControl.value === "custom";
+  dom.customClock.hidden = !custom;
+  // A control hidden with CSS is still validated by the browser, so an invisible custom
+  // value (the default 5 was not a valid step of 0.5) used to block every submit with
+  // "enter a valid value" and no visible field to fix. Disabling them takes them out of
+  // constraint validation entirely; picking Custom… re-enables them.
+  dom.timeInitial.disabled = !custom;
+  dom.timeIncrement.disabled = !custom;
 }
 
 function parseTimeControl() {

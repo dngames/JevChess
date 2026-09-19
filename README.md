@@ -28,6 +28,20 @@ TYPESAFE_API_KEY=...        # https://console.typesafe.ai/keys
 The key is read server-side only. It is never sent to the browser, never put in a URL and
 never logged. `.env` is gitignored.
 
+On Windows there is a better option than a plaintext file — **Windows secure storage**,
+which encrypts the key with DPAPI for your user only, outside the repository:
+
+```
+npm run key:set        # hidden prompt; stores %LOCALAPPDATA%\JevChess\jev-key.dpapi
+npm run key:status     # confirms a key is stored, never prints the key itself
+npm run key:clear
+```
+
+Decryptable only by the same Windows user on the same machine, so a copy of that blob is
+useless elsewhere, unlike a copy of `.env`. `TYPESAFE_API_KEY` in the environment or `.env`
+still takes precedence when present, and any failure in this path degrades to mock play
+instead of stopping the server.
+
 ---
 
 ## The interesting problem: Jev is not a chatbot
@@ -149,6 +163,7 @@ npm run test:ui       # 59 checks: board geometry, clocks, history preview, PGN
 npm run test:strategy # 45 checks: pipelines, fallbacks, veto loop, composite, game loop
 npm run bench         # how long the code half of a move takes
 npm run smoke         # drives a running server over HTTP + SSE (62 checks)
+npm run check:browser # renders the app in headless Chrome and plays real moves
 ```
 
 What each protects:
@@ -211,6 +226,13 @@ evaluation bar uses a separate 200 ms budget so the human's own moves feel immed
 | `TYPESAFE_MODEL` | `jev-latest` | Model id or alias; pin `jev-1.13.0` to freeze behaviour |
 | `PORT` / `HOST` | `8787` / `127.0.0.1` | Listen address |
 | `JEV_MOCK` | – | `1` forces the mock even with a key (offline UI work) |
+
+The key has two homes, checked in this order:
+
+1. `TYPESAFE_API_KEY` in the environment or `.env` (a shell variable wins).
+2. **Windows secure storage** — `npm run key:set` encrypts it with DPAPI for your Windows
+   user into `%LOCALAPPDATA%\JevChess\jev-key.dpapi`, outside the repository. A stolen file
+   is useless. `npm run key:status` and `npm run key:clear` manage it.
 
 ## Layout
 

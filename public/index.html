@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <title>JevChess — chess played by Jev</title>
+    <!-- Inline favicon: no extra request, and no 404 in the console. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2312140f'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%23eadfc8'%3E%E2%99%9E%3C/text%3E%3C/svg%3E"
+    />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
@@ -126,7 +131,7 @@
           <div class="field-row" id="custom-clock" hidden>
             <label class="control-label" for="time-initial">Minutes / increment&nbsp;(s)</label>
             <span class="inline-inputs">
-              <input type="number" id="time-initial" class="input input-num" min="0.1" max="180" step="0.5" value="5" />
+              <input type="number" id="time-initial" class="input input-num" min="0.5" max="180" step="0.5" value="5" />
               <input type="number" id="time-increment" class="input input-num" min="0" max="60" step="1" value="0" />
             </span>
           </div>
