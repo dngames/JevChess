@@ -18,6 +18,7 @@
     "test:soak": "node tests/soak.test.mjs",
     "test:key": "node tests/key-store.test.mjs",
     "smoke": "node tools/smoke.mjs",
+    "real-check": "node tools/real-check.mjs",
     "check:browser": "node tools/browser-check.mjs",
     "bench": "node tests/search-bench.mjs",
     "experiment": "node tools/experiment.mjs",

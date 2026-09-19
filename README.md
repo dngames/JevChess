@@ -179,6 +179,7 @@ npm run test:soak     # 9 checks, ~2 min: whole games played to a finish and rep
 npm run test:key      # 16 checks: the key prompt and the Windows secure-storage round trip
 npm run bench         # how long the code half of a move takes
 npm run smoke         # drives a running server over HTTP + SSE (62 checks)
+npm run real-check    # asks a live server for one real Jev move and inspects the record
 npm run check:browser # renders the app in headless Chrome and plays real moves
 ```
 
@@ -263,10 +264,46 @@ two-game run at the defaults. With the mock, Jev's answers are pseudo-random, so
 impact is the correct and expected result — it is how you know the metric discriminates rather
 than flatters. Real numbers need a key.
 
-**Not yet run against the real model**, because no key was available while building it.
-Expect the first real run to suggest editing questions and weights; that is the intended
-workflow, not a failure. Jev's competence at chess is the main open question in this
-project, and nothing here pretends otherwise.
+### What the real measurements say
+
+Both instruments have now been run against the live API (`jev-1.13.0`, via a key in Windows
+secure storage). This is the honest state of Jev's chess:
+
+**As a judge of a concrete question, Jev is excellent.** Every one of these is a fact the
+rules engine proved before Jev was asked:
+
+| Experiment | Result |
+| --- | --- |
+| Mate in one (4 positions, both colours) | **4/4** — found every mating move |
+| Win ≥200cp of material (3 positions) | **3/3** — Kxe2, Rxd8+, Rxd5 |
+| Score a blunder's safety lower than the best move's (9 positions) | **9/9** — e.g. 0.19 vs 0.53 |
+| Top-1 agreement with a 3-ply search (18 positions) | 12/18 (67%) |
+| Correlation between its quality scores and search centipawns | +0.35 |
+
+**As the thing that overrides a chess engine, it is not yet an improvement.** In real games
+(`npm run selfplay`, `balanced` vs the `code-only` baseline at a 300 ms budget), Jev changed
+the move on 29% of plies, and when those changes were re-judged by a deeper search they
+averaged **−50 cp** (0 better, 12 worse, 10 indistinguishable). Leaning harder on the search
+(`--weights="search=0.6,choice=0.1,quality=0.15,safety=0.1,activity=0.05"`) roughly halved
+that cost to **−24 cp**, with 58% of deviations indistinguishable.
+
+Three caveats, because this measurement has a real bias in it:
+
+1. **The yardstick is not independent.** Deviations are scored by the same material-and-table
+   evaluator that produced the search's move, so it structurally favours the search. It
+   measures agreement with a deeper search, not better chess. A judge that prefers a sound
+   long-term plan to a shallow material grab would look bad here and be right.
+2. **The match result says nothing yet.** Two games per configuration (1–1, then 0–2) is far
+   too few; `--games=20` is the honest way to settle it, and it is a few cents.
+3. **Two of the nine "chose the blunder" cases were labelling artifacts** — positions where
+   White is already winning by a queen, where the worst move by search score is not a blunder
+   at all. Jev had nonetheless ranked both as less safe.
+
+What this suggests, and what the tooling now makes testable: Jev is a good *judge* and a
+mediocre *overrider*. Its concrete, checkable dimensions (quality, safety) look well calibrated;
+its positional ones (activity, king pressure) are where unverifiable deviations come from. The
+next experiment is a weight sweep, and possibly asking only quality and safety in sharp
+positions.
 
 ## Cost and latency
 
@@ -285,6 +322,11 @@ Measured, not guessed — `npm run test:payload` prints this table for a real mi
 | `code-only` | 0 | 0 | 0 | $0 |
 
 At the default strategy that is roughly **$0.0005 per move, about 1 900 moves per dollar**.
+Against the live API the first real move cost **$0.0006** and reported **14 283 input tokens** —
+so the estimate above is about 14% low, because it counts characters divided by four rather
+than real tokens. Latency measured on that move: **2.1 s inside Jev** (1.35k output tokens are
+free), plus ~1.5 s of code search, i.e. a few seconds per move in total.
+
 The interesting part is *where* the tokens go: only ~2 000 of the 12 300 are the position
 itself; the rest is question text, because every candidate gets one Score question per
 dimension. So the cost knob is candidates × dimensions — which is exactly why `tactical`
@@ -334,13 +376,19 @@ tools/selfplay.mjs       match runner + "does Jev's judgement add anything?" met
 tools/smoke.mjs          drives a running server end to end
 tools/browser-check.mjs  renders the app in headless Chrome and plays real moves
 tools/win-key.mjs        store / inspect / clear the API key in Windows secure storage
+tools/real-check.mjs     "is this server really talking to Jev?" against a live server
 ```
 
 ## Honest limitations
 
 - **The code search is a shortlist generator, not a strong engine.** Material, piece-square
   tables, quiescence, 2–5 ply within a time budget. It keeps Jev from hanging pieces; it is
-  not playing strength on its own.
+  not playing strength on its own — and it is also the yardstick the match runner uses, which
+  is the bias called out above.
+- **Jev's judgement is measurably good and measurably costly.** It finds every mate in one and
+  every clear material win, and ranks blunders as less safe 9 times out of 9 — but its
+  deviations from the search average −24 to −50 cp by the search's own evaluation. The
+  headline numbers are in the section above, including why the yardstick is not neutral.
 - **Mock Jev is not chess.** With no key, moves are pseudo-random but deterministic, and the
   UI says so. Any strategy comparison run in mock mode is meaningless.
 - **The board has been looked at, but only headlessly.** `npm run check:browser` renders the

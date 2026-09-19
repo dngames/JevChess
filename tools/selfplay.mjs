@@ -60,6 +60,18 @@ const MAX_REFERENCE_MOVES = Math.max(0, Number(flag("reference-moves", 12)));
 const MAX_PLIES = Math.max(20, Number(flag("max-plies", 200)));
 const START_FEN = flag("fen", null);
 const MOCK = has("mock");
+/** e.g. --weights="search=0.6,quality=0.15,safety=0.1,activity=0.05" for seat A only. */
+const WEIGHTS = (() => {
+  const raw = flag("weights", null);
+  if (!raw) return null;
+  const parsed = {};
+  for (const pair of String(raw).split(",")) {
+    const [key, value] = pair.split("=").map((part) => part.trim());
+    const numeric = Number(value);
+    if (key && Number.isFinite(numeric)) parsed[key] = numeric;
+  }
+  return Object.keys(parsed).length > 0 ? parsed : null;
+})();
 
 for (const id of [SEAT_A, SEAT_B]) {
   if (!getPreset(id)) {
@@ -108,9 +120,10 @@ function judgeDeviation(chess, chosenSan, searchTopSan, bestCpAtSeatDepth) {
 }
 
 async function playGame({ gameNumber, seatA, seatB, aPlaysWhite }) {
+  const seatAConfig = { strategyId: SEAT_A, ...(WEIGHTS ? { weights: WEIGHTS } : {}) };
   const playerConfigs = aPlaysWhite
-    ? { w: { ...seatA, timeBudgetMs: BUDGET_MS }, b: { ...seatB, timeBudgetMs: BUDGET_MS } }
-    : { w: { ...seatB, timeBudgetMs: BUDGET_MS }, b: { ...seatA, timeBudgetMs: BUDGET_MS } };
+    ? { w: { ...seatAConfig, timeBudgetMs: BUDGET_MS }, b: { strategyId: SEAT_B, timeBudgetMs: BUDGET_MS } }
+    : { w: { strategyId: SEAT_B, timeBudgetMs: BUDGET_MS }, b: { ...seatAConfig, timeBudgetMs: BUDGET_MS } };
 
   const game = new Game({
     id: `selfplay_${gameNumber}_${Math.random().toString(36).slice(2, 7)}`,
