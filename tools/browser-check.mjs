@@ -158,6 +158,9 @@ const DIAGNOSTICS = `(() => {
     // reply, so counting rows would undercount the game's progress.
     moveListRows: all('#move-list [data-ply]').length,
     moveListText: text('#move-list'),
+    // Which game the page is showing: without this, a check that starts a new game cannot tell
+    // "the new game has a move" from "the previous game still has its moves".
+    gameId: document.body?.dataset?.gameId || null,
     banner: q('#jev-banner') && !q('#jev-banner').hidden ? text('#jev-banner') : null,
     toasts: all('#toast-stack .toast').map((n) => n.textContent.trim().slice(0, 120)),
     dialogOpen: Boolean(q('#new-game-dialog')?.open),
@@ -448,6 +451,68 @@ try {
     }
   }
   await screenshot("03-jev-vs-jev.png");
+
+  // --- the routing-only preset, end to end ---------------------------------
+  // The switch has to be visible where it matters: a plan in force, and no weight shift claimed.
+  console.log("\n2b. the routing-only planning preset");
+  const gameBeforeRouting = (await evaluate(DIAGNOSTICS)).gameId;
+  await evaluate(`document.querySelector('#btn-new').click()`);
+  await sleep(1000);
+  const routingStarted = await evaluate(`(() => {
+    const radios = Array.from(document.querySelectorAll('#mode-choices input[type=radio]'));
+    const jev = radios.find((r) => /jev-vs-jev|jev_vs_jev/i.test(r.value));
+    if (jev) jev.click();
+    const select = Array.from(document.querySelectorAll('#players-grid select'))[0];
+    if (!select) return 'no player select';
+    const option = Array.from(select.options).find((o) => o.value === 'strategist-routing');
+    if (!option) return 'no strategist-routing option';
+    select.value = option.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    const submit = document.querySelector('#dialog-start');
+    if (!submit) return 'missing submit button';
+    submit.click();
+    return 'started with White = ' + option.textContent.trim();
+  })()`);
+  console.log(`  info  ${routingStarted}`);
+  ok(/started with White/.test(routingStarted), `the routing-only preset is selectable in the dialog (${routingStarted})`);
+  const routingDeadline = Date.now() + 90_000;
+  let routing = await evaluate(DIAGNOSTICS);
+  // Wait for the *new* game first: the previous game already had moves listed, so "rows > 0"
+  // alone would have the check asserting on the old game's panel (it did, once).
+  while (Date.now() < routingDeadline && routing.gameId === gameBeforeRouting) {
+    await sleep(500);
+    routing = await evaluate(DIAGNOSTICS);
+  }
+  ok(routing.gameId !== gameBeforeRouting, `a fresh game replaced the previous one (${gameBeforeRouting} → ${routing.gameId})`);
+  while (Date.now() < routingDeadline && routing.moveListRows === 0) {
+    await sleep(1500);
+    routing = await evaluate(DIAGNOSTICS);
+  }
+  const routingPlan = await evaluate(`(() => {
+    const box = document.querySelector('#jev-panel .jev-plan');
+    if (!box) return null;
+    return {
+      kind: (box.querySelector('.jev-plan-kind')?.textContent ?? '').trim(),
+      lines: Array.from(box.querySelectorAll('.jev-plan-line')).map((n) => n.textContent.trim()),
+      tally: (box.querySelector('.jev-plan-tally')?.textContent ?? '').trim(),
+    };
+  })()`);
+  ok(routing.moveListRows > 0, `the routing-only seat played (${routing.moveListRows} row(s))`);
+  ok(Boolean(routingPlan), "the plan block renders for the routing-only seat");
+  if (routingPlan) {
+    console.log(`  info  plan: ${routingPlan.kind}`);
+    for (const line of routingPlan.lines) console.log(`  info  ${line}`);
+    if (routingPlan.tally) console.log(`  info  plan effect: ${routingPlan.tally}`);
+    ok(
+      routingPlan.lines.some((line) => /routes plans to Jev's questions only/i.test(line)),
+      "the panel says the plan routes questions only",
+    );
+    ok(
+      !routingPlan.lines.some((line) => /Weights shifted/i.test(line)),
+      "and claims no weight shift, because there was none",
+    );
+  }
+  await screenshot("06-routing-only.png");
 
   // --- a human game, driven by real input events -------------------------
   console.log("\n3. human vs Jev, played with real mouse input");

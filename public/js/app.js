@@ -241,6 +241,12 @@ function render() {
   const game = store.game;
   const now = localNow();
 
+  // Which game is on screen, as a stable handle. Anything looking at the page from outside — the
+  // browser check, a script, a future "reconnect to this game" feature — otherwise cannot tell a
+  // fresh game from the previous one, which is exactly how a UI test ends up asserting on the
+  // last game's panel after starting a new one.
+  document.body.dataset.gameId = game && game.id ? String(game.id) : "";
+
   renderPlayers(now);
   statusLine.update(game, now);
   evalBar.update(game ? game.evalBar : null);

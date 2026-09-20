@@ -206,8 +206,9 @@ export const PRESETS = [
     name: "Strategist (routing only)",
     description:
       "The same Gemini planning step as the Strategist, minus the weight shift: the plan may choose which of " +
-      "Jev's questions to ask, but the preset's weights stay exactly as they are. This is the control for the " +
-      "one part of the strategy layer that measured as costing material.",
+      "Jev's questions to ask, but the preset's weights stay exactly as they are. Built as the control for the " +
+      "weight shift, which carries the largest measured cost so far (-88 cp per re-judged deviation, against " +
+      "-32 cp for the same judge with no plan) — though the samples are too small to separate that from noise.",
     pipeline: "shortlist-composite",
     candidateLimit: 12,
     searchDepth: 3,
