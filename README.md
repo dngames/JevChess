@@ -2,12 +2,15 @@
 
 Chess played by **Jev**, TypeSafe's System One model — in a browser, with the pieces
 moving, a configurable strategy on each seat, and every judgement Jev made shown next to
-the move it produced.
+the move it produced. Two optional **Strategist** presets add a Gemini reasoning model above
+Jev: Gemini chooses a longer-lived plan, while Jev still judges candidate moves and the
+code remains responsible for legality and search.
 
 - **Human vs Jev** — you take either colour, Jev takes the other.
 - **Jev vs Jev** — two strategies play each other, move by move, with pause and step.
-- **Configurable strategy per seat** — 10 presets (one labelled *best*, two that plan with a reasoning model) plus sliders that
-  change how the code's search and Jev's judgements are blended.
+- **Configurable strategy per seat** — 10 presets (one labelled *best*, two optional
+  Gemini-planned Strategists) plus sliders that change how the code's search and Jev's
+  judgements are blended.
 - **Zero dependencies, no build step** — a plain Node server and plain browser modules.
 
 ```
@@ -19,23 +22,33 @@ Without an API key the server plays **mock Jev** — deterministic, clearly labe
 UI, and useless as chess. Everything else (rules, board, clocks, animations, panels) is
 real, so you can try the whole app before spending anything.
 
-To play with the real model, put your key in `.env` (see `.env.example`) and restart:
+To play with real Jev, put your TypeSafe key in `.env` (see `.env.example`). To enable
+the two Strategist presets, add a Gemini key as well; it is optional and independent:
 
 ```
-TYPESAFE_API_KEY=...        # https://console.typesafe.ai/keys
+TYPESAFE_API_KEY=...        # Jev: https://console.typesafe.ai/keys
+GEMINI_API_KEY=...          # optional: enables Gemini planning for Strategist presets
+# GEMINI_MODEL=...          # optional model override
 ```
 
-The key is read server-side only. It is never sent to the browser, never put in a URL and
-never logged. `.env` is gitignored.
+Restart the server after changing keys. Without `GEMINI_API_KEY`, ordinary Jev strategies
+still work, while a Strategist seat falls back to its base preset and records that no planner
+was configured. `GEMINI_MOCK=1` enables deterministic fake plans for development; they are
+labelled as mock output and are not chess judgement.
+
+Both keys are read server-side only. They are never sent to the browser, put in a URL or
+logged. `.env` is gitignored.
 
 On Windows there is a better option than a plaintext file — **Windows secure storage**,
 which encrypts the key with DPAPI for your user only, outside the repository:
 
 ```
-npm run key:set        # hidden prompt: paste the TypeSafe key, press Enter (nothing is echoed)
-npm run key:set -- gemini   # and the same for the strategist's Gemini key, if you want planning
-npm run key:status     # confirms a key is stored, never prints the key itself
-npm run key:clear
+npm run key:set             # TypeSafe key (default)
+npm run key:set -- gemini    # optional Gemini strategist key
+npm run key:status           # status of both keys; never prints either key
+npm run key:status -- gemini # status of only the Gemini key
+npm run key:clear            # clear TypeSafe key
+npm run key:clear -- gemini  # clear Gemini key
 ```
 
 If the terminal is not interactive — a script, a CI job, a sandbox — there are two other ways
